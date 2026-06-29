@@ -8,7 +8,7 @@ import java.util.List;
 /**
  * DTO de mise à jour du profil avocat.
  *
- * Tous les champs sont optionnels, seuls les champs non-null
+ * Tous les champs sont optionnels - seuls les champs non-null
  * sont mis à jour (patch partiel).
  * Appelé par PUT /api/lawyers/profile.
  */

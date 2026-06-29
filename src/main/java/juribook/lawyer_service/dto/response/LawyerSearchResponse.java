@@ -5,27 +5,25 @@ import juribook.lawyer_service.entity.Lawyer;
 import lombok.Builder;
 import lombok.Data;
 
-import java.time.LocalDateTime;
 import java.util.List;
 
 /**
- * DTO de réponse complet du profil avocat.
+ * DTO de réponse pour la liste de recherche.
  *
- * Retourné par :
- *   POST /api/lawyers/profile  (création)
- *   GET  /api/lawyers/profile  (consultation du profil personnel)
- *   PUT  /api/lawyers/profile  (mise à jour)
- *   GET  /api/lawyers/{id}     (profil public - Sprint 2.3)
+ * Version allégée de LawyerProfileResponse ne contient pas
+ * les champs lourds (bio complète) pour optimiser les performances
+ * quand on retourne une page de 20 résultats.
  */
 @Data
 @Builder
 @JsonInclude(JsonInclude.Include.NON_NULL)
-public class LawyerProfileResponse {
+public class LawyerSearchResponse {
 
     private Long id;
-    private Long authUserId;
     private String barNumber;
-    private String bio;
+    // Bio tronquée à 200 caractères dans la liste - le détail complet
+    // est disponible via GET /api/lawyers/{id}
+    private String bioExcerpt;
     private Integer hourlyRate;
     private Integer yearsExperience;
     private String languages;
@@ -34,19 +32,17 @@ public class LawyerProfileResponse {
     private int reviewCount;
     private AddressResponse address;
     private List<SpecialtyResponse> specialties;
-    private LocalDateTime createdAt;
-    private LocalDateTime updatedAt;
 
-    /**
-     * Factory method - convertit l'entité Lawyer en DTO de réponse.
-     * Utilisé dans LawyerService pour éviter la duplication de mapping.
-     */
-    public static LawyerProfileResponse from(Lawyer lawyer) {
-        return LawyerProfileResponse.builder()
+    public static LawyerSearchResponse from(Lawyer lawyer) {
+        String bio = lawyer.getBio();
+        String excerpt = (bio != null && bio.length() > 200)
+                ? bio.substring(0, 200) + "..."
+                : bio;
+
+        return LawyerSearchResponse.builder()
                 .id(lawyer.getId())
-                .authUserId(lawyer.getAuthUserId())
                 .barNumber(lawyer.getBarNumber())
-                .bio(lawyer.getBio())
+                .bioExcerpt(excerpt)
                 .hourlyRate(lawyer.getHourlyRate())
                 .yearsExperience(lawyer.getYearsExperience())
                 .languages(lawyer.getLanguages())
@@ -59,8 +55,6 @@ public class LawyerProfileResponse {
                         .map(SpecialtyResponse::from)
                         .toList()
                 )
-                .createdAt(lawyer.getCreatedAt())
-                .updatedAt(lawyer.getUpdatedAt())
                 .build();
     }
 }

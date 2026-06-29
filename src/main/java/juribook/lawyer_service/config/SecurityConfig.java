@@ -46,12 +46,16 @@ public class SecurityConfig {
                 )
                 .authorizeHttpRequests(auth -> auth
                     // ── Routes publiques GET ────────────────────
+                    .requestMatchers(HttpMethod.GET,  "/api/lawyers").permitAll()
+                    .requestMatchers(HttpMethod.GET,  "/api/lawyers/*").permitAll()
+                    .requestMatchers(HttpMethod.GET,  "/api/specialties").permitAll()
                     .requestMatchers("/actuator/health").permitAll()
                     .requestMatchers("/swagger-ui/**", "/swagger-ui.html", "/v3/api-docs/**").permitAll()
                     // ── Routes LAWYER uniquement ────────────────
                     // ⚠️ /api/lawyers/profile doit être AVANT /api/lawyers/*
                     // pour ne pas être capturé par la règle publique
                     .requestMatchers(HttpMethod.POST, "/api/lawyers/profile").hasRole("LAWYER")
+                    .requestMatchers(HttpMethod.GET,  "/api/lawyers/profile").hasRole("LAWYER")
                     .requestMatchers(HttpMethod.PUT,  "/api/lawyers/profile").hasRole("LAWYER")
                     // ── Tout le reste → authentification requise
                     .anyRequest().authenticated()

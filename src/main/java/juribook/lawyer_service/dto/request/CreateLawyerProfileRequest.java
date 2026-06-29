@@ -10,7 +10,7 @@ import java.util.List;
  *
  * authUserId est extrait du JWT côté serveur.
  * barNumber est lu depuis le JWT (claim "barNumber") si présent,
- * sinon depuis ce champ, permet la compatibilité si l'auth-service
+ * sinon depuis ce champ — permet la compatibilité si l'auth-service
  * ne l'inclut pas dans ses claims.
  */
 @Data

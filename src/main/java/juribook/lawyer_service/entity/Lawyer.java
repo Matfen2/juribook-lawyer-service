@@ -42,7 +42,6 @@ public class Lawyer {
     private Long authUserId;
 
     // ── Informations professionnelles ────────────────────────
-
     // Numéro de barreau (5 chiffres) - identifiant officiel de l'avocat
     @Column(name = "bar_number", nullable = false, unique = true, length = 5)
     private String barNumber;
@@ -80,7 +79,6 @@ public class Lawyer {
     private List<Specialty> specialties = new ArrayList<>();
 
     // ── Statut et disponibilité ──────────────────────────────
-
     // true si l'avocat accepte de nouveaux clients
     @Column(name = "available", nullable = false)
     private boolean available = true;
@@ -94,7 +92,6 @@ public class Lawyer {
     private int reviewCount = 0;
 
     // ── Audit ────────────────────────────────────────────────
-
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 

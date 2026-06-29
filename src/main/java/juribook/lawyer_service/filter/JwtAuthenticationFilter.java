@@ -22,7 +22,7 @@ import java.util.List;
  * Si le token est valide, construit un Authentication Spring Security
  * avec le userId et le rôle extraits des claims.
  *
- * barNumber peut être absent du token (claim optionnel) — on le lit
+ * barNumber peut être absent du token (claim optionnel), on le lit
  * défensivement avec getOrDefault pour éviter un NPE.
  */
 @Component
@@ -56,7 +56,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             Long userId  = jwtService.extractUserId(token);
             String role  = jwtService.extractRole(token);
 
-            // barNumber est optionnel — peut ne pas être dans les claims du token
+            // barNumber est optionnel, peut ne pas être dans les claims du token
             // On ne lève pas d'exception s'il est absent
             String barNumber = jwtService.extractBarNumber(token);
 

@@ -9,7 +9,7 @@ import lombok.NoArgsConstructor;
  *
  * Stockée dans la table `lawyers` (pas de table séparée).
  * Ce choix évite une jointure inutile car l'adresse n'existe
- * que dans le contexte d'un cabinet — elle n'a pas de sens seule.
+ * que dans le contexte d'un cabinet, elle n'a pas de sens seule.
  *
  * Colonnes générées : street, city, postal_code, department, region
  */

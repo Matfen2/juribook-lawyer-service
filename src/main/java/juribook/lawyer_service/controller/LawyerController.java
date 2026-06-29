@@ -1,6 +1,7 @@
 package juribook.lawyer_service.controller;
 
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -8,16 +9,25 @@ import jakarta.validation.Valid;
 import juribook.lawyer_service.dto.request.CreateLawyerProfileRequest;
 import juribook.lawyer_service.dto.request.UpdateLawyerProfileRequest;
 import juribook.lawyer_service.dto.response.LawyerProfileResponse;
+import juribook.lawyer_service.dto.response.LawyerSearchResponse;
+import juribook.lawyer_service.dto.response.SpecialtyResponse;
 import juribook.lawyer_service.service.LawyerService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
 
 /**
  * Controller REST pour les profils et la recherche d'avocats.
+ *
+ * Routes publiques (pas de JWT requis) :
+ *   GET /api/lawyers          → recherche paginée avec filtres
+ *   GET /api/lawyers/{id}     → profil public d'un avocat
+ *   GET /api/specialties      → liste des spécialités
  *
  * Routes LAWYER uniquement :
  *   POST /api/lawyers/profile → créer son profil
@@ -30,6 +40,43 @@ import org.springframework.web.bind.annotation.*;
 public class LawyerController {
 
     private final LawyerService lawyerService;
+
+    // ── GET /api/lawyers - Recherche paginée ──────────────────
+    @GetMapping("/api/lawyers")
+    @Operation(
+        summary = "Rechercher des avocats",
+        description = """
+            Recherche paginée avec filtres optionnels cumulables.
+            Tous les paramètres sont optionnels - sans filtre, retourne tous les avocats disponibles.
+            Résultats triés par note décroissante.
+            """
+    )
+    @ApiResponse(responseCode = "200", description = "Page de résultats")
+    public ResponseEntity<Page<LawyerSearchResponse>> search(
+
+        @Parameter(description = "Slug de la spécialité (ex: droit-du-travail)")
+        @RequestParam(required = false) String specialty,
+
+        @Parameter(description = "Ville du cabinet (ex: Paris)")
+        @RequestParam(required = false) String city,
+
+        @Parameter(description = "Recherche textuelle libre dans la bio")
+        @RequestParam(required = false) String query,
+
+        @Parameter(description = "Tarif horaire maximum en €")
+        @RequestParam(required = false) Integer maxRate,
+
+        @Parameter(description = "Numéro de page (0-based, défaut : 0)")
+        @RequestParam(defaultValue = "0") int page,
+
+        @Parameter(description = "Résultats par page (défaut : 20, max : 50)")
+        @RequestParam(defaultValue = "20") int size
+
+    ) {
+        return ResponseEntity.ok(
+            lawyerService.search(specialty, city, query, maxRate, page, size)
+        );
+    }
 
     // ── POST /api/lawyers/profile - Créer son profil ─────────
     @PostMapping("/api/lawyers/profile")
@@ -76,7 +123,7 @@ public class LawyerController {
     @PutMapping("/api/lawyers/profile")
     @Operation(
         summary = "Modifier son profil avocat",
-        description = "Patch partiel — seuls les champs non-null sont mis à jour."
+        description = "Patch partiel - seuls les champs non-null sont mis à jour."
     )
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Profil mis à jour"),
@@ -91,5 +138,30 @@ public class LawyerController {
 
         Long authUserId = (Long) authentication.getPrincipal();
         return ResponseEntity.ok(lawyerService.updateProfile(authUserId, request));
+    }
+
+    // ── GET /api/lawyers/{id} - Profil public ────────────────
+    @GetMapping("/api/lawyers/{id}")
+    @Operation(
+        summary = "Consulter le profil public d'un avocat",
+        description = "Accessible à tous - pas de JWT requis."
+    )
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "Profil retourné"),
+        @ApiResponse(responseCode = "404", description = "Avocat introuvable")
+    })
+    public ResponseEntity<LawyerProfileResponse> getPublicProfile(@PathVariable Long id) {
+        return ResponseEntity.ok(lawyerService.getProfileById(id));
+    }
+
+    // ── GET /api/specialties - Liste des spécialités ─────────
+    @GetMapping("/api/specialties")
+    @Operation(
+        summary = "Lister toutes les spécialités juridiques",
+        description = "Retourne les 15 spécialités prédéfinies avec leur slug. Accessible à tous."
+    )
+    @ApiResponse(responseCode = "200", description = "Liste des spécialités")
+    public ResponseEntity<List<SpecialtyResponse>> getAllSpecialties() {
+        return ResponseEntity.ok(lawyerService.getAllSpecialties());
     }
 }

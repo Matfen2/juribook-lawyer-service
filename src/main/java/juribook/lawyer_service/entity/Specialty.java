@@ -7,7 +7,7 @@ import lombok.NoArgsConstructor;
 import java.util.List;
 
 /**
- * Spécialité juridique : table de référence.
+ * Spécialité juridique - table de référence.
  *
  * Peuplée par Flyway (V2__insert_specialties.sql) avec les 15 spécialités
  * prédéfinies du barreau français. Les avocats peuvent avoir plusieurs
