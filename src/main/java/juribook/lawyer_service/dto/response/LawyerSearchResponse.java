@@ -10,7 +10,7 @@ import java.util.List;
 /**
  * DTO de réponse pour la liste de recherche.
  *
- * Version allégée de LawyerProfileResponse ne contient pas
+ * Version allégée de LawyerProfileResponse — ne contient pas
  * les champs lourds (bio complète) pour optimiser les performances
  * quand on retourne une page de 20 résultats.
  */
@@ -20,8 +20,9 @@ import java.util.List;
 public class LawyerSearchResponse {
 
     private Long id;
+    private String name;
     private String barNumber;
-    // Bio tronquée à 200 caractères dans la liste - le détail complet
+    // Bio tronquée à 200 caractères dans la liste — le détail complet
     // est disponible via GET /api/lawyers/{id}
     private String bioExcerpt;
     private Integer hourlyRate;
@@ -41,6 +42,7 @@ public class LawyerSearchResponse {
 
         return LawyerSearchResponse.builder()
                 .id(lawyer.getId())
+                .name(lawyer.getName())
                 .barNumber(lawyer.getBarNumber())
                 .bioExcerpt(excerpt)
                 .hourlyRate(lawyer.getHourlyRate())

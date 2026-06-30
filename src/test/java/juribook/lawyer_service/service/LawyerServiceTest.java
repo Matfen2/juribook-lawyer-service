@@ -34,7 +34,7 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 /**
- * Tests unitaires de LawyerService - couverture CRUD, recherche, filtres, pagination.
+ * Tests unitaires de LawyerService — couverture CRUD, recherche, filtres, pagination.
  *
  * Convention de nommage : methode_scenario_resultatAttendu
  * Mocking : LawyerRepository et SpecialtyRepository sont mockés,
@@ -68,6 +68,7 @@ class LawyerServiceTest {
         sophieLawyer = new Lawyer();
         sophieLawyer.setId(10L);
         sophieLawyer.setAuthUserId(100L);
+        sophieLawyer.setName("Maître Sophie Martin");
         sophieLawyer.setBarNumber("75001");
         sophieLawyer.setBio("Avocate en droit du travail depuis 12 ans.");
         sophieLawyer.setHourlyRate(220);
@@ -81,7 +82,7 @@ class LawyerServiceTest {
     }
 
     // ══════════════════════════════════════════════════════════
-    //  CREATE - createProfile
+    //  CREATE — createProfile
     // ══════════════════════════════════════════════════════════
     @Nested
     @DisplayName("createProfile")
@@ -91,6 +92,7 @@ class LawyerServiceTest {
         @DisplayName("crée le profil quand aucun profil n'existe déjà pour cet authUserId")
         void createProfile_noExistingProfile_savesAndReturnsResponse() {
             CreateLawyerProfileRequest request = new CreateLawyerProfileRequest();
+            request.setName("Maître Sophie Martin");
             request.setBio("Avocate en droit du travail depuis 12 ans.");
             request.setHourlyRate(220);
             request.setYearsExperience(12);
@@ -106,7 +108,7 @@ class LawyerServiceTest {
             when(specialtyRepository.findById(1L)).thenReturn(Optional.of(specialtyDroitTravail));
             when(lawyerRepository.save(any(Lawyer.class))).thenReturn(sophieLawyer);
 
-            LawyerProfileResponse response = lawyerService.createProfile(100L, "75001", request);
+            LawyerProfileResponse response = lawyerService.createProfile(100L, "75001", "Maître Sophie Martin", request);
 
             assertThat(response.getId()).isEqualTo(10L);
             assertThat(response.getBarNumber()).isEqualTo("75001");
@@ -118,11 +120,12 @@ class LawyerServiceTest {
         @DisplayName("lève LawyerProfileAlreadyExistsException si un profil existe déjà")
         void createProfile_existingProfile_throwsAlreadyExists() {
             CreateLawyerProfileRequest request = new CreateLawyerProfileRequest();
+            request.setName("Maître Sophie Martin");
             request.setSpecialtyIds(List.of(1L));
 
             when(lawyerRepository.existsByAuthUserId(100L)).thenReturn(true);
 
-            assertThatThrownBy(() -> lawyerService.createProfile(100L, "75001", request))
+            assertThatThrownBy(() -> lawyerService.createProfile(100L, "75001", "Maître Sophie Martin", request))
                     .isInstanceOf(LawyerProfileAlreadyExistsException.class)
                     .hasMessageContaining("existe déjà");
 
@@ -133,12 +136,13 @@ class LawyerServiceTest {
         @DisplayName("lève IllegalArgumentException si une spécialité n'existe pas")
         void createProfile_unknownSpecialtyId_throwsIllegalArgument() {
             CreateLawyerProfileRequest request = new CreateLawyerProfileRequest();
+            request.setName("Maître Sophie Martin");
             request.setSpecialtyIds(List.of(999L));
 
             when(lawyerRepository.existsByAuthUserId(100L)).thenReturn(false);
             when(specialtyRepository.findById(999L)).thenReturn(Optional.empty());
 
-            assertThatThrownBy(() -> lawyerService.createProfile(100L, "75001", request))
+            assertThatThrownBy(() -> lawyerService.createProfile(100L, "75001", "Maître Sophie Martin", request))
                     .isInstanceOf(IllegalArgumentException.class)
                     .hasMessageContaining("Spécialité introuvable");
 
@@ -147,7 +151,7 @@ class LawyerServiceTest {
     }
 
     // ══════════════════════════════════════════════════════════
-    //  READ - getMyProfile / getProfileById
+    //  READ — getMyProfile / getProfileById
     // ══════════════════════════════════════════════════════════
     @Nested
     @DisplayName("getMyProfile / getProfileById")
@@ -196,7 +200,7 @@ class LawyerServiceTest {
     }
 
     // ══════════════════════════════════════════════════════════
-    //  UPDATE - updateProfile (patch partiel)
+    //  UPDATE — updateProfile (patch partiel)
     // ══════════════════════════════════════════════════════════
     @Nested
     @DisplayName("updateProfile")
@@ -436,6 +440,7 @@ class LawyerServiceTest {
             String longBio = "A".repeat(250);
             Lawyer lawyerWithLongBio = new Lawyer();
             lawyerWithLongBio.setId(20L);
+            lawyerWithLongBio.setName("Maître Thomas Leblanc");
             lawyerWithLongBio.setBarNumber("69001");
             lawyerWithLongBio.setBio(longBio);
             lawyerWithLongBio.setSpecialties(List.of());
@@ -454,7 +459,7 @@ class LawyerServiceTest {
     }
 
     // ══════════════════════════════════════════════════════════
-    //  SPECIALTIES - getAllSpecialties
+    //  SPECIALTIES — getAllSpecialties
     // ══════════════════════════════════════════════════════════
     @Nested
     @DisplayName("getAllSpecialties")

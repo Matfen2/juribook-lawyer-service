@@ -29,7 +29,7 @@ import static org.mockito.Mockito.*;
 /**
  * Tests unitaires de LawyerController.
  *
- * LawyerService est mocké, on teste uniquement le câblage HTTP :
+ * LawyerService est mocké — on teste uniquement le câblage HTTP :
  * codes de statut, délégation au service, extraction du principal/credentials
  * depuis l'objet Authentication (userId et barNumber issus du JWT).
  *
@@ -56,6 +56,7 @@ class LawyerControllerTest {
         return LawyerProfileResponse.builder()
                 .id(10L)
                 .authUserId(100L)
+                .name("Maître Sophie Martin")
                 .barNumber("75001")
                 .bio("Avocate en droit du travail.")
                 .hourlyRate(220)
@@ -65,10 +66,10 @@ class LawyerControllerTest {
     }
 
     // ══════════════════════════════════════════════════════════
-    //  GET /api/lawyers - recherche
+    //  GET /api/lawyers — recherche
     // ══════════════════════════════════════════════════════════
     @Nested
-    @DisplayName("GET /api/lawyers - search")
+    @DisplayName("GET /api/lawyers — search")
     class SearchEndpoint {
 
         @Test
@@ -118,21 +119,23 @@ class LawyerControllerTest {
     }
 
     // ══════════════════════════════════════════════════════════
-    //  POST /api/lawyers/profile - créer
+    //  POST /api/lawyers/profile — créer
     // ══════════════════════════════════════════════════════════
     @Nested
-    @DisplayName("POST /api/lawyers/profile - createProfile")
+    @DisplayName("POST /api/lawyers/profile — createProfile")
     class CreateProfileEndpoint {
 
         @Test
-        @DisplayName("retourne 201 et utilise le barNumber des credentials du JWT en priorité")
-        void createProfile_barNumberFromCredentials_takesPriority() {
+        @DisplayName("retourne 201 — barNumber vient exclusivement des credentials du JWT")
+        void createProfile_barNumberAlwaysFromCredentials() {
             CreateLawyerProfileRequest request = new CreateLawyerProfileRequest();
-            request.setBarNumber("00000"); // valeur du body, ne doit PAS être utilisée
+            request.setName("Maître Sophie Martin");
+            // barNumber n'existe plus dans le body depuis le Sprint 2.2 —
+            // il provient exclusivement du claim JWT "barNumber"
 
             when(authentication.getPrincipal()).thenReturn(100L);
-            when(authentication.getCredentials()).thenReturn("75001"); // valeur du JWT, prioritaire
-            when(lawyerService.createProfile(100L, "75001", request))
+            when(authentication.getCredentials()).thenReturn("75001"); // valeur du JWT
+            when(lawyerService.createProfile(100L, "75001", "Maître Sophie Martin", request))
                     .thenReturn(buildProfileResponse());
 
             ResponseEntity<LawyerProfileResponse> response =
@@ -140,33 +143,50 @@ class LawyerControllerTest {
 
             assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
             assertThat(response.getBody().getBarNumber()).isEqualTo("75001");
-            verify(lawyerService).createProfile(100L, "75001", request);
+            assertThat(response.getBody().getName()).isEqualTo("Maître Sophie Martin");
+            verify(lawyerService).createProfile(100L, "75001", "Maître Sophie Martin", request);
         }
 
         @Test
-        @DisplayName("retombe sur le barNumber du body si les credentials JWT sont absents")
-        void createProfile_noCredentials_fallsBackToRequestBody() {
+        @DisplayName("barNumber est null si les credentials JWT sont absents — pas de repli sur le body")
+        void createProfile_noCredentials_barNumberIsNull() {
             CreateLawyerProfileRequest request = new CreateLawyerProfileRequest();
-            request.setBarNumber("69001");
+            request.setName("Maître Thomas Leblanc");
 
             when(authentication.getPrincipal()).thenReturn(100L);
             when(authentication.getCredentials()).thenReturn(null);
-            when(lawyerService.createProfile(100L, "69001", request))
+            when(lawyerService.createProfile(100L, null, "Maître Thomas Leblanc", request))
                     .thenReturn(buildProfileResponse());
 
             ResponseEntity<LawyerProfileResponse> response =
                     lawyerController.createProfile(request, authentication);
 
             assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
-            verify(lawyerService).createProfile(100L, "69001", request);
+            verify(lawyerService).createProfile(100L, null, "Maître Thomas Leblanc", request);
+        }
+
+        @Test
+        @DisplayName("name provient toujours du body de la requête")
+        void createProfile_nameAlwaysFromRequestBody() {
+            CreateLawyerProfileRequest request = new CreateLawyerProfileRequest();
+            request.setName("Maître Jean Dupont");
+
+            when(authentication.getPrincipal()).thenReturn(100L);
+            when(authentication.getCredentials()).thenReturn("75001");
+            when(lawyerService.createProfile(100L, "75001", "Maître Jean Dupont", request))
+                    .thenReturn(buildProfileResponse());
+
+            lawyerController.createProfile(request, authentication);
+
+            verify(lawyerService).createProfile(100L, "75001", "Maître Jean Dupont", request);
         }
     }
 
     // ══════════════════════════════════════════════════════════
-    //  GET /api/lawyers/profile - mon profil
+    //  GET /api/lawyers/profile — mon profil
     // ══════════════════════════════════════════════════════════
     @Nested
-    @DisplayName("GET /api/lawyers/profile - getMyProfile")
+    @DisplayName("GET /api/lawyers/profile — getMyProfile")
     class GetMyProfileEndpoint {
 
         @Test
@@ -185,10 +205,10 @@ class LawyerControllerTest {
     }
 
     // ══════════════════════════════════════════════════════════
-    //  PUT /api/lawyers/profile - modifier
+    //  PUT /api/lawyers/profile — modifier
     // ══════════════════════════════════════════════════════════
     @Nested
-    @DisplayName("PUT /api/lawyers/profile - updateProfile")
+    @DisplayName("PUT /api/lawyers/profile — updateProfile")
     class UpdateProfileEndpoint {
 
         @Test
@@ -209,10 +229,10 @@ class LawyerControllerTest {
     }
 
     // ══════════════════════════════════════════════════════════
-    //  GET /api/lawyers/{id} - profil public
+    //  GET /api/lawyers/{id} — profil public
     // ══════════════════════════════════════════════════════════
     @Nested
-    @DisplayName("GET /api/lawyers/{id} - getPublicProfile")
+    @DisplayName("GET /api/lawyers/{id} — getPublicProfile")
     class GetPublicProfileEndpoint {
 
         @Test
@@ -230,10 +250,10 @@ class LawyerControllerTest {
     }
 
     // ══════════════════════════════════════════════════════════
-    //  GET /api/specialties - liste des spécialités
+    //  GET /api/specialties — liste des spécialités
     // ══════════════════════════════════════════════════════════
     @Nested
-    @DisplayName("GET /api/specialties - getAllSpecialties")
+    @DisplayName("GET /api/specialties — getAllSpecialties")
     class GetAllSpecialtiesEndpoint {
 
         @Test

@@ -15,7 +15,7 @@ import java.util.List;
  *   POST /api/lawyers/profile  (création)
  *   GET  /api/lawyers/profile  (consultation du profil personnel)
  *   PUT  /api/lawyers/profile  (mise à jour)
- *   GET  /api/lawyers/{id}     (profil public - Sprint 2.3)
+ *   GET  /api/lawyers/{id}     (profil public — Sprint 2.3)
  */
 @Data
 @Builder
@@ -24,6 +24,7 @@ public class LawyerProfileResponse {
 
     private Long id;
     private Long authUserId;
+    private String name;
     private String barNumber;
     private String bio;
     private Integer hourlyRate;
@@ -38,13 +39,14 @@ public class LawyerProfileResponse {
     private LocalDateTime updatedAt;
 
     /**
-     * Factory method - convertit l'entité Lawyer en DTO de réponse.
+     * Factory method — convertit l'entité Lawyer en DTO de réponse.
      * Utilisé dans LawyerService pour éviter la duplication de mapping.
      */
     public static LawyerProfileResponse from(Lawyer lawyer) {
         return LawyerProfileResponse.builder()
                 .id(lawyer.getId())
                 .authUserId(lawyer.getAuthUserId())
+                .name(lawyer.getName())
                 .barNumber(lawyer.getBarNumber())
                 .bio(lawyer.getBio())
                 .hourlyRate(lawyer.getHourlyRate())

@@ -19,7 +19,7 @@ import java.util.List;
  *   - Disponibilité : booléen pour filtrer la recherche
  *
  * Principe microservices : chaque service possède ses propres données.
- * On ne fait PAS de jointure inter-services, on utilise authUserId
+ * On ne fait PAS de jointure inter-services — on utilise authUserId
  * pour récupérer le nom/email depuis l'auth-service si nécessaire.
  *
  * Relations :
@@ -42,7 +42,16 @@ public class Lawyer {
     private Long authUserId;
 
     // ── Informations professionnelles ────────────────────────
-    // Numéro de barreau (5 chiffres) - identifiant officiel de l'avocat
+
+    // Nom complet de l'avocat, dénormalisé depuis User.name de l'auth-service.
+    // Copié à la création du profil (Sprint 3.6) pour éviter un appel
+    // inter-services à chaque affichage de carte ou de fiche détail.
+    // Reste cohérent tant que l'avocat ne change pas de nom côté auth-service
+    // (cas rare, non synchronisé automatiquement pour l'instant).
+    @Column(name = "name", nullable = false, length = 100)
+    private String name;
+
+    // Numéro de barreau (5 chiffres) — identifiant officiel de l'avocat
     @Column(name = "bar_number", nullable = false, unique = true, length = 5)
     private String barNumber;
 
@@ -58,7 +67,7 @@ public class Lawyer {
     @Column(name = "years_experience")
     private Integer yearsExperience;
 
-    // Langues parlées - ex : "Français, Anglais, Arabe"
+    // Langues parlées — ex : "Français, Anglais, Arabe"
     @Column(name = "languages", length = 200)
     private String languages;
 
@@ -79,6 +88,7 @@ public class Lawyer {
     private List<Specialty> specialties = new ArrayList<>();
 
     // ── Statut et disponibilité ──────────────────────────────
+
     // true si l'avocat accepte de nouveaux clients
     @Column(name = "available", nullable = false)
     private boolean available = true;
@@ -92,6 +102,7 @@ public class Lawyer {
     private int reviewCount = 0;
 
     // ── Audit ────────────────────────────────────────────────
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 

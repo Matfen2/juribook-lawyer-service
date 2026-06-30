@@ -41,13 +41,13 @@ public class LawyerController {
 
     private final LawyerService lawyerService;
 
-    // ── GET /api/lawyers - Recherche paginée ──────────────────
+    // ── GET /api/lawyers — Recherche paginée ──────────────────
     @GetMapping("/api/lawyers")
     @Operation(
         summary = "Rechercher des avocats",
         description = """
             Recherche paginée avec filtres optionnels cumulables.
-            Tous les paramètres sont optionnels - sans filtre, retourne tous les avocats disponibles.
+            Tous les paramètres sont optionnels — sans filtre, retourne tous les avocats disponibles.
             Résultats triés par note décroissante.
             """
     )
@@ -78,7 +78,7 @@ public class LawyerController {
         );
     }
 
-    // ── POST /api/lawyers/profile - Créer son profil ─────────
+    // ── POST /api/lawyers/profile — Créer son profil ─────────
     @PostMapping("/api/lawyers/profile")
     @Operation(
         summary = "Créer son profil avocat",
@@ -96,16 +96,27 @@ public class LawyerController {
             Authentication authentication) {
 
         Long authUserId  = (Long) authentication.getPrincipal();
+
+        // barNumber : lu depuis les credentials du JWT (claim "barNumber"),
+        // injecté par JwtAuthenticationFilter. Pas de repli sur le body —
+        // ce champ n'existe plus dans CreateLawyerProfileRequest depuis le
+        // Sprint 2.2, le numéro de barreau provient uniquement du token.
         String barNumber = authentication.getCredentials() != null
                 ? (String) authentication.getCredentials()
-                : request.getBarNumber();
+                : null;
+
+        // name : idéalement extrait d'un futur claim "name" du JWT (à l'image
+        // de barNumber) — pour l'instant fourni dans le body par le client,
+        // en attendant la confirmation du contenu réel du JwtService de
+        // l'auth-service (claim "name" à vérifier côté génération du token).
+        String name = request.getName();
 
         return ResponseEntity
                 .status(HttpStatus.CREATED)
-                .body(lawyerService.createProfile(authUserId, barNumber, request));
+                .body(lawyerService.createProfile(authUserId, barNumber, name, request));
     }
 
-    // ── GET /api/lawyers/profile - Mon profil ────────────────
+    // ── GET /api/lawyers/profile — Mon profil ────────────────
     @GetMapping("/api/lawyers/profile")
     @Operation(summary = "Consulter son propre profil avocat")
     @ApiResponses({
@@ -119,11 +130,11 @@ public class LawyerController {
         return ResponseEntity.ok(lawyerService.getMyProfile(authUserId));
     }
 
-    // ── PUT /api/lawyers/profile - Modifier son profil ───────
+    // ── PUT /api/lawyers/profile — Modifier son profil ───────
     @PutMapping("/api/lawyers/profile")
     @Operation(
         summary = "Modifier son profil avocat",
-        description = "Patch partiel - seuls les champs non-null sont mis à jour."
+        description = "Patch partiel — seuls les champs non-null sont mis à jour."
     )
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Profil mis à jour"),
@@ -140,11 +151,11 @@ public class LawyerController {
         return ResponseEntity.ok(lawyerService.updateProfile(authUserId, request));
     }
 
-    // ── GET /api/lawyers/{id} - Profil public ────────────────
+    // ── GET /api/lawyers/{id} — Profil public ────────────────
     @GetMapping("/api/lawyers/{id}")
     @Operation(
         summary = "Consulter le profil public d'un avocat",
-        description = "Accessible à tous - pas de JWT requis."
+        description = "Accessible à tous — pas de JWT requis."
     )
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Profil retourné"),
@@ -154,7 +165,7 @@ public class LawyerController {
         return ResponseEntity.ok(lawyerService.getProfileById(id));
     }
 
-    // ── GET /api/specialties - Liste des spécialités ─────────
+    // ── GET /api/specialties — Liste des spécialités ─────────
     @GetMapping("/api/specialties")
     @Operation(
         summary = "Lister toutes les spécialités juridiques",

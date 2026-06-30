@@ -45,7 +45,7 @@ public class LawyerService {
 
     // ── Créer un profil avocat ───────────────────────────────
     @Transactional
-    public LawyerProfileResponse createProfile(Long authUserId, String barNumber,
+    public LawyerProfileResponse createProfile(Long authUserId, String barNumber, String name,
                                                CreateLawyerProfileRequest request) {
         if (lawyerRepository.existsByAuthUserId(authUserId)) {
             throw new LawyerProfileAlreadyExistsException(
@@ -57,6 +57,7 @@ public class LawyerService {
 
         Lawyer lawyer = new Lawyer();
         lawyer.setAuthUserId(authUserId);
+        lawyer.setName(name != null ? name : request.getName());
         lawyer.setBarNumber(barNumber);
         lawyer.setBio(request.getBio());
         lawyer.setHourlyRate(request.getHourlyRate());
@@ -123,10 +124,10 @@ public class LawyerService {
     /**
      * Recherche d'avocats avec filtres optionnels cumulables.
      *
-     * @param specialtySlug  slug de la spécialité (ex: "droit-du-travail") - nullable
-     * @param city           ville du cabinet - nullable
-     * @param query          recherche textuelle libre - nullable
-     * @param maxRate        tarif horaire maximum - nullable
+     * @param specialtySlug  slug de la spécialité (ex: "droit-du-travail") — nullable
+     * @param city           ville du cabinet — nullable
+     * @param query          recherche textuelle libre — nullable
+     * @param maxRate        tarif horaire maximum — nullable
      * @param page           numéro de page (0-based)
      * @param size           taille de page (défaut 20, max 50)
      * @return page de résultats triés par note décroissante
@@ -165,6 +166,7 @@ public class LawyerService {
     }
 
     // ── Helpers privés ───────────────────────────────────────
+
     private List<Specialty> resolveSpecialties(List<Long> ids) {
         return ids.stream()
                 .map(id -> specialtyRepository.findById(id)
