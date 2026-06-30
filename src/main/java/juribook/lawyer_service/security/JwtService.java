@@ -1,4 +1,4 @@
-package juribook.lawyer_service.service;
+package juribook.lawyer_service.security;
 
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
