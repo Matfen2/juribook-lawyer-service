@@ -8,6 +8,7 @@ import juribook.lawyer_service.dto.response.SpecialtyResponse;
 import juribook.lawyer_service.entity.Address;
 import juribook.lawyer_service.entity.Lawyer;
 import juribook.lawyer_service.entity.Specialty;
+import juribook.lawyer_service.event.LawyerEventPublisher;
 import juribook.lawyer_service.exception.LawyerProfileAlreadyExistsException;
 import juribook.lawyer_service.exception.LawyerProfileNotFoundException;
 import juribook.lawyer_service.repository.LawyerRepository;
@@ -31,6 +32,9 @@ import java.util.List;
  *   - Les spécialités doivent exister en BDD (vérification par ID)
  *   - La recherche ne retourne que les avocats disponibles (available = true)
  *   - Pagination : 20 résultats par page par défaut, max 50
+ *   - Événements : un changement de `available` publie lawyer.status-changed
+ *     sur Kafka, booking-service s'en sert pour refuser les nouvelles
+ *     réservations tant que l'avocat n'est pas redevenu disponible.
  */
 @Service
 @RequiredArgsConstructor
@@ -39,6 +43,7 @@ public class LawyerService {
 
     private final LawyerRepository lawyerRepository;
     private final SpecialtyRepository specialtyRepository;
+    private final LawyerEventPublisher lawyerEventPublisher;
 
     private static final int DEFAULT_PAGE_SIZE = 20;
     private static final int MAX_PAGE_SIZE     = 50;
@@ -69,6 +74,9 @@ public class LawyerService {
 
         Lawyer saved = lawyerRepository.save(lawyer);
         log.info("Profil avocat créé : id={}, authUserId={}", saved.getId(), authUserId);
+
+        // Pas de publication ici : available démarre toujours à true à la
+        // création, ce n'est pas un "changement" au sens de l'événement.
 
         return LawyerProfileResponse.from(saved);
     }
@@ -102,6 +110,11 @@ public class LawyerService {
                     "Profil introuvable — veuillez d'abord créer votre profil"
                 ));
 
+        // Capturé avant modification, pour ne publier l'événement Kafka
+        // que si la valeur change réellement, pas à chaque
+        // sauvegarde de profil qui ne touche pas à available.
+        boolean previousAvailability = lawyer.isAvailable();
+
         if (request.getBio() != null)             lawyer.setBio(request.getBio());
         if (request.getHourlyRate() != null)      lawyer.setHourlyRate(request.getHourlyRate());
         if (request.getYearsExperience() != null) lawyer.setYearsExperience(request.getYearsExperience());
@@ -117,33 +130,22 @@ public class LawyerService {
         Lawyer saved = lawyerRepository.save(lawyer);
         log.info("Profil avocat mis à jour : id={}, authUserId={}", saved.getId(), authUserId);
 
+        if (request.getAvailable() != null && request.getAvailable() != previousAvailability) {
+            lawyerEventPublisher.publishStatusChanged(saved);
+        }
+
         return LawyerProfileResponse.from(saved);
     }
 
     // ── Recherche paginée avec filtres ───────────────────────
-    /**
-     * Recherche d'avocats avec filtres optionnels cumulables.
-     *
-     * @param specialtySlug  slug de la spécialité (ex: "droit-du-travail") — nullable
-     * @param city           ville du cabinet — nullable
-     * @param query          recherche textuelle libre — nullable
-     * @param maxRate        tarif horaire maximum — nullable
-     * @param page           numéro de page (0-based)
-     * @param size           taille de page (défaut 20, max 50)
-     * @return page de résultats triés par note décroissante
-     */
     @Transactional(readOnly = true)
     public Page<LawyerSearchResponse> search(String specialtySlug, String city,
                                              String query, Integer maxRate,
                                              int page, int size) {
-        // Limiter la taille de page pour éviter les surcharges
         int safeSize = Math.min(size, MAX_PAGE_SIZE);
         Pageable pageable = PageRequest.of(page, safeSize);
 
-        // Normaliser les paramètres (null si vide ou blank)
         String normalizedSlug  = isBlank(specialtySlug) ? null : specialtySlug.trim().toLowerCase();
-        // La requête JPQL compare l'égalité exacte sur city — on capitalise
-        // la première lettre pour matcher "Paris" stocké en BDD
         String normalizedCity  = isBlank(city) ? null : capitalize(city.trim());
         String normalizedQuery = isBlank(query)         ? null : query.trim();
 
@@ -166,7 +168,6 @@ public class LawyerService {
     }
 
     // ── Helpers privés ───────────────────────────────────────
-
     private List<Specialty> resolveSpecialties(List<Long> ids) {
         return ids.stream()
                 .map(id -> specialtyRepository.findById(id)
@@ -204,11 +205,6 @@ public class LawyerService {
         return s == null || s.isBlank();
     }
 
-    /**
-     * Capitalise la première lettre et met le reste en minuscules.
-     * Ex: "paris" → "Paris", "PARIS" → "Paris"
-     * Utilisé pour normaliser la ville avant comparaison en BDD.
-     */
     private String capitalize(String s) {
         if (s == null || s.isEmpty()) return s;
         return Character.toUpperCase(s.charAt(0)) + s.substring(1).toLowerCase();
