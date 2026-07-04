@@ -3,30 +3,24 @@ package juribook.lawyer_service.service;
 import juribook.lawyer_service.client.BookingDetailsDto;
 import juribook.lawyer_service.client.BookingServiceClient;
 import juribook.lawyer_service.dto.request.CreateReviewRequest;
+import juribook.lawyer_service.dto.response.ReviewPublicResponse;
 import juribook.lawyer_service.dto.response.ReviewResponse;
 import juribook.lawyer_service.entity.Review;
 import juribook.lawyer_service.event.ReviewEventPublisher;
 import juribook.lawyer_service.exception.InvalidReviewException;
 import juribook.lawyer_service.exception.NotEligibleToReviewException;
+import juribook.lawyer_service.exception.ReviewNotFoundException;
 import juribook.lawyer_service.repository.ReviewRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
 import java.util.Optional;
 
 /**
- * Création d'avis, seul un client ayant eu un
- * rendez-vous COMPLETED peut laisser un avis, une seule fois par
- * réservation, l'avocat concerné est déduit de la réservation (jamais
- * déclaré par le client).
- *
- * Après sauvegarde de l'avis, délègue à LawyerService le
- * recalcul de la note moyenne du profil, dans la MÊME transaction
- * (@Transactional couvre les deux appels), pour garantir que le profil
- * n'affiche jamais une note désynchronisée des avis réellement
- * enregistrés.
+ * Création, modération et consultation d'avis (Sprint 6.1 → 6.5).
  */
 @Service
 @RequiredArgsConstructor
@@ -70,11 +64,50 @@ public class ReviewService {
         log.info("Avis créé : id={}, lawyerId={}, clientId={}, bookingId={}, rating={}",
                 saved.getId(), saved.getLawyerId(), clientId, request.getBookingId(), request.getRating());
 
-        // Recalcul immédiat, même transaction, jamais de
-        // fenêtre où le profil afficherait une note obsolète.
         lawyerService.recalculateRating(saved.getLawyerId());
-
         reviewEventPublisher.publishReviewCreated(saved);
+
+        return ReviewResponse.from(saved);
+    }
+
+    // ══════════════════════════════════════════════════════════
+    //  Consultation publique (Sprint 6.5)
+    // ══════════════════════════════════════════════════════════
+
+    @Transactional(readOnly = true)
+    public List<ReviewPublicResponse> getVisibleReviews(Long lawyerId) {
+        return reviewRepository.findByLawyerIdAndVisibleTrueOrderByCreatedAtDesc(lawyerId)
+                .stream()
+                .map(ReviewPublicResponse::from)
+                .toList();
+    }
+
+    // ══════════════════════════════════════════════════════════
+    //  Modération admin (Sprint 6.4)
+    // ══════════════════════════════════════════════════════════
+
+    @Transactional
+    public ReviewResponse hideReview(Long reviewId) {
+        return setVisibility(reviewId, false);
+    }
+
+    @Transactional
+    public ReviewResponse unhideReview(Long reviewId) {
+        return setVisibility(reviewId, true);
+    }
+
+    private ReviewResponse setVisibility(Long reviewId, boolean visible) {
+        Review review = reviewRepository.findById(reviewId)
+                .orElseThrow(() -> new ReviewNotFoundException(
+                    "Avis introuvable : id=" + reviewId));
+
+        review.setVisible(visible);
+        Review saved = reviewRepository.save(review);
+
+        log.info("Avis {} : id={}, lawyerId={}", visible ? "démasqué" : "masqué",
+                saved.getId(), saved.getLawyerId());
+
+        lawyerService.recalculateRating(saved.getLawyerId());
 
         return ReviewResponse.from(saved);
     }

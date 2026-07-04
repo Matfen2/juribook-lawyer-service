@@ -8,17 +8,11 @@ import java.time.LocalDateTime;
 /**
  * Avis laissé par un client sur un avocat, après un rendez-vous honoré.
  *
- * Rattaché à un bookingId précis (pas juste un couple lawyerId/clientId) :
- * le client désigne quelle réservation il évalue, ce qui permet une
- * contrainte d'unicité sans ambiguïté (un avis par réservation, cf.
- * migration V4) et une vérification d'éligibilité stricte, cf.
- * ReviewService.createReview, qui interroge le booking-service pour
- * confirmer que ce bookingId appartient bien à ce client, concerne bien
- * cet avocat, et est bien au statut COMPLETED avant d'accepter l'avis.
- *
- * lawyerId et clientId sont dénormalisés depuis la réservation au moment
- * de la création (pas de FK JPA, principe déjà établi dans les autres
- * services : database per service, simples colonnes de corrélation).
+ * visible (Sprint 6.4) : true par défaut, passé à false par l'admin
+ * pour masquer un avis inapproprié (PATCH /api/reviews/{id}/hide). Un
+ * avis masqué reste en base (pas de suppression — traçabilité, cf.
+ * ReviewService), mais n'entre plus dans le calcul de la note moyenne
+ * (ReviewRepository.findAverageRatingByLawyerId filtre dessus).
  */
 @Entity
 @Table(name = "reviews")
@@ -35,8 +29,6 @@ public class Review {
     @Column(name = "client_id", nullable = false)
     private Long clientId;
 
-    // Référence à la réservation COMPLETED qui a rendu cet avis
-    // possible. UNIQUE en base (migration V4) : un avis par réservation.
     @Column(name = "booking_id", nullable = false, unique = true)
     private Long bookingId;
 
@@ -45,6 +37,9 @@ public class Review {
 
     @Column(name = "comment", length = 1000)
     private String comment;
+
+    @Column(name = "visible", nullable = false)
+    private boolean visible = true;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;

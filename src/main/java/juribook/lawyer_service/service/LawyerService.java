@@ -190,7 +190,7 @@ public class LawyerService {
                     "Avocat introuvable : id=" + lawyerId));
 
         Double rawAverage = reviewRepository.findAverageRatingByLawyerId(lawyerId);
-        long count = reviewRepository.countByLawyerId(lawyerId);
+        long count = reviewRepository.countByLawyerIdAndVisibleTrue(lawyerId);
 
         Double roundedAverage = rawAverage != null
                 ? Math.round(rawAverage * 10.0) / 10.0

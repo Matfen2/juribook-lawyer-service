@@ -13,18 +13,17 @@ public interface ReviewRepository extends JpaRepository<Review, Long> {
 
     boolean existsByBookingId(Long bookingId);
 
-    // Pas encore utilisé (affichage des avis sur un profil = sprint à
-    // venir), mais naturel de le poser dès maintenant vu le modèle.
+    // Tous les avis, y compris masqués — pas encore utilisé (futur
+    // panneau de modération admin), mais posé dès le 6.1.
     List<Review> findByLawyerIdOrderByCreatedAtDesc(Long lawyerId);
 
-    // ── Agrégats pour le recalcul de note moyenne ──
+    // Avis publics uniquement, c'est celle-ci que la page
+    // détail avocat consulte, jamais les avis masqués par l'admin.
+    List<Review> findByLawyerIdAndVisibleTrueOrderByCreatedAtDesc(Long lawyerId);
 
-    // Null tant qu'aucun avis n'existe pour cet avocat, AVG() sur un
-    // ensemble vide retourne NULL en SQL, jamais 0. Cohérent avec le
-    // comportement déjà établi de Lawyer.averageRating (null par défaut,
-    // pas 0.0, tant qu'aucun avis n'a été laissé).
-    @Query("SELECT AVG(r.rating) FROM Review r WHERE r.lawyerId = :lawyerId")
+    // ── Agrégats pour le recalcul de note moyenne ──
+    @Query("SELECT AVG(r.rating) FROM Review r WHERE r.lawyerId = :lawyerId AND r.visible = true")
     Double findAverageRatingByLawyerId(@Param("lawyerId") Long lawyerId);
 
-    long countByLawyerId(Long lawyerId);
+    long countByLawyerIdAndVisibleTrue(Long lawyerId);
 }
