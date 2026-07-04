@@ -35,7 +35,7 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         return http
-                // CORS configuré ici — pas de bean CorsFilter séparé
+                // CORS configuré ici, pas de bean CorsFilter séparé
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .csrf(AbstractHttpConfigurer::disable)
                 .sessionManagement(session ->
@@ -47,10 +47,12 @@ public class SecurityConfig {
                     .requestMatchers(HttpMethod.GET, "/api/specialties").permitAll()
                     .requestMatchers("/actuator/**").permitAll()
                     .requestMatchers("/swagger-ui/**", "/swagger-ui.html", "/v3/api-docs/**").permitAll()
-                    // Routes LAWYER — déclarées avant /api/lawyers/**
+                    // Routes LAWYER - déclarées avant /api/lawyers/**
                     .requestMatchers(HttpMethod.POST, "/api/lawyers/profile").hasRole("LAWYER")
                     .requestMatchers(HttpMethod.GET,  "/api/lawyers/profile").hasRole("LAWYER")
                     .requestMatchers(HttpMethod.PUT,  "/api/lawyers/profile").hasRole("LAWYER")
+                    // Route CLIENT - laisser un avis
+                    .requestMatchers(HttpMethod.POST, "/api/reviews").hasRole("CLIENT")
                     // Profils publics
                     .requestMatchers(HttpMethod.GET, "/api/lawyers/**").permitAll()
                     .anyRequest().authenticated()

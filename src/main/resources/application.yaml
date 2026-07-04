@@ -51,6 +51,15 @@ jwt:
   expiration: 86400000 # 24h en ms
 
 # ═══════════════════════════════════════════════════════════
+#  booking-service
+#  Consulté pour vérifier l'éligibilité à laisser un avis
+#  (réservation COMPLETED appartenant bien au client).
+#  En conteneur, surchargé par BOOKING_SERVICE_BASE_URL
+# ═══════════════════════════════════════════════════════════
+booking-service:
+  base-url: ${BOOKING_SERVICE_BASE_URL:http://localhost:8083}
+
+# ═══════════════════════════════════════════════════════════
 #  Springdoc / Swagger UI
 # ═══════════════════════════════════════════════════════════
 springdoc:

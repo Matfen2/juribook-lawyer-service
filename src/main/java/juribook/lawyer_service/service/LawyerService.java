@@ -12,6 +12,7 @@ import juribook.lawyer_service.event.LawyerEventPublisher;
 import juribook.lawyer_service.exception.LawyerProfileAlreadyExistsException;
 import juribook.lawyer_service.exception.LawyerProfileNotFoundException;
 import juribook.lawyer_service.repository.LawyerRepository;
+import juribook.lawyer_service.repository.ReviewRepository;
 import juribook.lawyer_service.repository.SpecialtyRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -32,9 +33,6 @@ import java.util.List;
  *   - Les spécialités doivent exister en BDD (vérification par ID)
  *   - La recherche ne retourne que les avocats disponibles (available = true)
  *   - Pagination : 20 résultats par page par défaut, max 50
- *   - Événements : un changement de `available` publie lawyer.status-changed
- *     sur Kafka, booking-service s'en sert pour refuser les nouvelles
- *     réservations tant que l'avocat n'est pas redevenu disponible.
  */
 @Service
 @RequiredArgsConstructor
@@ -43,6 +41,7 @@ public class LawyerService {
 
     private final LawyerRepository lawyerRepository;
     private final SpecialtyRepository specialtyRepository;
+    private final ReviewRepository reviewRepository;
     private final LawyerEventPublisher lawyerEventPublisher;
 
     private static final int DEFAULT_PAGE_SIZE = 20;
@@ -75,8 +74,9 @@ public class LawyerService {
         Lawyer saved = lawyerRepository.save(lawyer);
         log.info("Profil avocat créé : id={}, authUserId={}", saved.getId(), authUserId);
 
-        // Pas de publication ici : available démarre toujours à true à la
-        // création, ce n'est pas un "changement" au sens de l'événement.
+        // Pas de publication Kafka ici : available démarre toujours à
+        // true à la création, ce n'est pas un "changement" au sens de
+        // l'événement lawyer.status-changed.
 
         return LawyerProfileResponse.from(saved);
     }
@@ -110,9 +110,7 @@ public class LawyerService {
                     "Profil introuvable — veuillez d'abord créer votre profil"
                 ));
 
-        // Capturé avant modification, pour ne publier l'événement Kafka
-        // que si la valeur change réellement, pas à chaque
-        // sauvegarde de profil qui ne touche pas à available.
+        // Capturé avant modification, pour ne publier l'événement Kafka que si la valeur change réellement.
         boolean previousAvailability = lawyer.isAvailable();
 
         if (request.getBio() != null)             lawyer.setBio(request.getBio());
@@ -165,6 +163,45 @@ public class LawyerService {
         return specialtyRepository.findAll().stream()
                 .map(SpecialtyResponse::from)
                 .toList();
+    }
+
+    // ══════════════════════════════════════════════════════════
+    //  Note moyenne
+    // ══════════════════════════════════════════════════════════
+    /**
+     * Recalcule averageRating et reviewCount à partir de TOUS les avis
+     * existants pour cet avocat (pas un calcul incrémental), appelé
+     * par ReviewService.createReview, dans la même transaction que la
+     * sauvegarde de l'avis : si l'un échoue, l'autre est annulé aussi,
+     * le profil ne peut jamais afficher une note désynchronisée des
+     * avis réellement en base.
+     *
+     * Recalcul complet plutôt qu'incrémental (ex: maintenir une somme
+     * courante) : plus simple, correct par construction, et le volume
+     * d'avis par avocat reste largement dans les limites d'un COUNT/AVG
+     * SQL trivial pour ce projet, pas besoin d'optimisation prématurée.
+     *
+     * Arrondi à une décimale pour l'affichage (4.4285714... → 4.4).
+     */
+    @Transactional
+    public void recalculateRating(Long lawyerId) {
+        Lawyer lawyer = lawyerRepository.findById(lawyerId)
+                .orElseThrow(() -> new LawyerProfileNotFoundException(
+                    "Avocat introuvable : id=" + lawyerId));
+
+        Double rawAverage = reviewRepository.findAverageRatingByLawyerId(lawyerId);
+        long count = reviewRepository.countByLawyerId(lawyerId);
+
+        Double roundedAverage = rawAverage != null
+                ? Math.round(rawAverage * 10.0) / 10.0
+                : null;
+
+        lawyer.setAverageRating(roundedAverage);
+        lawyer.setReviewCount((int) count);
+
+        lawyerRepository.save(lawyer);
+        log.info("Note moyenne recalculée : lawyerId={}, averageRating={}, reviewCount={}",
+                lawyerId, roundedAverage, count);
     }
 
     // ── Helpers privés ───────────────────────────────────────

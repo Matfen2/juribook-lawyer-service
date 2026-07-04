@@ -14,8 +14,8 @@ import java.util.Map;
  * Gestionnaire global des exceptions HTTP pour le lawyer-service.
  *
  * Codes HTTP retournés :
- *   400 → validation des champs (@Valid)
- *   403 → accès interdit (mauvais rôle)
+ *   400 → validation des champs (@Valid), avis invalide (déjà existant, réservation introuvable)
+ *   403 → accès interdit (mauvais rôle, réservation n'appartenant pas au client, statut ≠ COMPLETED)
  *   404 → profil introuvable
  *   409 → profil déjà existant
  *   500 → erreur inattendue
@@ -61,6 +61,22 @@ public class GlobalExceptionHandler {
     public ResponseEntity<Map<String, String>> handleIllegalArgument(
             IllegalArgumentException ex) {
         return ResponseEntity.badRequest()
+                .body(Map.of("message", ex.getMessage()));
+    }
+
+    // ── 400 - Avis invalide (déjà existant, réservation introuvable)
+    @ExceptionHandler(InvalidReviewException.class)
+    public ResponseEntity<Map<String, String>> handleInvalidReview(
+            InvalidReviewException ex) {
+        return ResponseEntity.badRequest()
+                .body(Map.of("message", ex.getMessage()));
+    }
+
+    // ── 403 - Client non éligible à laisser cet avis
+    @ExceptionHandler(NotEligibleToReviewException.class)
+    public ResponseEntity<Map<String, String>> handleNotEligibleToReview(
+            NotEligibleToReviewException ex) {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN)
                 .body(Map.of("message", ex.getMessage()));
     }
 

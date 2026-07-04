@@ -8,6 +8,7 @@ import juribook.lawyer_service.dto.response.SpecialtyResponse;
 import juribook.lawyer_service.entity.Address;
 import juribook.lawyer_service.entity.Lawyer;
 import juribook.lawyer_service.entity.Specialty;
+import juribook.lawyer_service.event.LawyerEventPublisher;
 import juribook.lawyer_service.exception.LawyerProfileAlreadyExistsException;
 import juribook.lawyer_service.exception.LawyerProfileNotFoundException;
 import juribook.lawyer_service.repository.LawyerRepository;
@@ -34,11 +35,15 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 /**
- * Tests unitaires de LawyerService — couverture CRUD, recherche, filtres, pagination.
+ * Tests unitaires de LawyerService - couverture CRUD, recherche, filtres, pagination.
  *
  * Convention de nommage : methode_scenario_resultatAttendu
- * Mocking : LawyerRepository et SpecialtyRepository sont mockés,
- * aucune base de données réelle n'est sollicitée.
+ * Mocking : LawyerRepository, SpecialtyRepository et LawyerEventPublisher
+ * sont mockés, aucune base de données réelle ni Kafka réel
+ * n'est sollicité. LawyerEventPublisher.publishStatusChanged est une
+ * méthode void, Mockito ne nécessite aucun stubbing pour elle (no-op
+ * par défaut), sans le mock lui-même @InjectMocks laisserait le champ
+ * à null et ferait planter tout appel à updateProfile.
  */
 @ExtendWith(MockitoExtension.class)
 @DisplayName("LawyerService")
@@ -49,6 +54,9 @@ class LawyerServiceTest {
 
     @Mock
     private SpecialtyRepository specialtyRepository;
+
+    @Mock
+    private LawyerEventPublisher lawyerEventPublisher;
 
     @InjectMocks
     private LawyerService lawyerService;
@@ -82,7 +90,7 @@ class LawyerServiceTest {
     }
 
     // ══════════════════════════════════════════════════════════
-    //  CREATE — createProfile
+    //  CREATE - createProfile
     // ══════════════════════════════════════════════════════════
     @Nested
     @DisplayName("createProfile")
@@ -114,6 +122,23 @@ class LawyerServiceTest {
             assertThat(response.getBarNumber()).isEqualTo("75001");
             assertThat(response.getSpecialties()).hasSize(1);
             verify(lawyerRepository).save(any(Lawyer.class));
+        }
+
+        @Test
+        @DisplayName("ne publie aucun événement Kafka — available démarre toujours à true")
+        void createProfile_neverPublishesStatusChangedEvent() {
+            CreateLawyerProfileRequest request = new CreateLawyerProfileRequest();
+            request.setName("Maître Sophie Martin");
+            request.setSpecialtyIds(List.of(1L));
+            request.setCity("Paris");
+
+            when(lawyerRepository.existsByAuthUserId(100L)).thenReturn(false);
+            when(specialtyRepository.findById(1L)).thenReturn(Optional.of(specialtyDroitTravail));
+            when(lawyerRepository.save(any(Lawyer.class))).thenReturn(sophieLawyer);
+
+            lawyerService.createProfile(100L, "75001", "Maître Sophie Martin", request);
+
+            verifyNoInteractions(lawyerEventPublisher);
         }
 
         @Test
@@ -151,7 +176,7 @@ class LawyerServiceTest {
     }
 
     // ══════════════════════════════════════════════════════════
-    //  READ — getMyProfile / getProfileById
+    //  READ - getMyProfile / getProfileById
     // ══════════════════════════════════════════════════════════
     @Nested
     @DisplayName("getMyProfile / getProfileById")
@@ -200,7 +225,7 @@ class LawyerServiceTest {
     }
 
     // ══════════════════════════════════════════════════════════
-    //  UPDATE — updateProfile (patch partiel)
+    //  UPDATE - updateProfile (patch partiel)
     // ══════════════════════════════════════════════════════════
     @Nested
     @DisplayName("updateProfile")
@@ -220,6 +245,20 @@ class LawyerServiceTest {
             assertThat(response.getHourlyRate()).isEqualTo(250);
             // La bio originale doit être préservée car non fournie dans le patch
             assertThat(response.getBio()).isEqualTo("Avocate en droit du travail depuis 12 ans.");
+        }
+
+        @Test
+        @DisplayName("ne publie aucun événement Kafka si available n'est pas dans la requête")
+        void updateProfile_availableNotInRequest_doesNotPublishEvent() {
+            UpdateLawyerProfileRequest request = new UpdateLawyerProfileRequest();
+            request.setHourlyRate(250); // available reste null dans la requête
+
+            when(lawyerRepository.findByAuthUserId(100L)).thenReturn(Optional.of(sophieLawyer));
+            when(lawyerRepository.save(any(Lawyer.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            lawyerService.updateProfile(100L, request);
+
+            verifyNoInteractions(lawyerEventPublisher);
         }
 
         @Test
@@ -286,6 +325,50 @@ class LawyerServiceTest {
         }
 
         @Test
+        @DisplayName("publie lawyer.status-changed quand available passe de true à false (Sprint 5.9)")
+        void updateProfile_availableChangesFromTrueToFalse_publishesStatusChangedEvent() {
+            UpdateLawyerProfileRequest request = new UpdateLawyerProfileRequest();
+            request.setAvailable(false);
+
+            when(lawyerRepository.findByAuthUserId(100L)).thenReturn(Optional.of(sophieLawyer));
+            when(lawyerRepository.save(any(Lawyer.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            lawyerService.updateProfile(100L, request);
+
+            verify(lawyerEventPublisher).publishStatusChanged(argThat(l -> !l.isAvailable()));
+        }
+
+        @Test
+        @DisplayName("publie lawyer.status-changed quand available repasse de false à true (Sprint 5.9)")
+        void updateProfile_availableChangesFromFalseToTrue_publishesStatusChangedEvent() {
+            sophieLawyer.setAvailable(false);
+            UpdateLawyerProfileRequest request = new UpdateLawyerProfileRequest();
+            request.setAvailable(true);
+
+            when(lawyerRepository.findByAuthUserId(100L)).thenReturn(Optional.of(sophieLawyer));
+            when(lawyerRepository.save(any(Lawyer.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            lawyerService.updateProfile(100L, request);
+
+            verify(lawyerEventPublisher).publishStatusChanged(argThat(Lawyer::isAvailable));
+        }
+
+        @Test
+        @DisplayName("ne publie rien quand available est fourni mais identique à la valeur actuelle (Sprint 5.9)")
+        void updateProfile_availableUnchanged_doesNotPublishEvent() {
+            // sophieLawyer.available == true, requête redemande explicitement true
+            UpdateLawyerProfileRequest request = new UpdateLawyerProfileRequest();
+            request.setAvailable(true);
+
+            when(lawyerRepository.findByAuthUserId(100L)).thenReturn(Optional.of(sophieLawyer));
+            when(lawyerRepository.save(any(Lawyer.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            lawyerService.updateProfile(100L, request);
+
+            verifyNoInteractions(lawyerEventPublisher);
+        }
+
+        @Test
         @DisplayName("lève LawyerProfileNotFoundException si le profil n'existe pas")
         void updateProfile_noProfile_throwsNotFound() {
             UpdateLawyerProfileRequest request = new UpdateLawyerProfileRequest();
@@ -296,11 +379,12 @@ class LawyerServiceTest {
                     .isInstanceOf(LawyerProfileNotFoundException.class);
 
             verify(lawyerRepository, never()).save(any());
+            verifyNoInteractions(lawyerEventPublisher);
         }
     }
 
     // ══════════════════════════════════════════════════════════
-    //  SEARCH — search (filtres + pagination)
+    //  SEARCH - search (filtres + pagination)
     // ══════════════════════════════════════════════════════════
     @Nested
     @DisplayName("search")
@@ -459,7 +543,7 @@ class LawyerServiceTest {
     }
 
     // ══════════════════════════════════════════════════════════
-    //  SPECIALTIES — getAllSpecialties
+    //  SPECIALTIES - getAllSpecialties
     // ══════════════════════════════════════════════════════════
     @Nested
     @DisplayName("getAllSpecialties")
