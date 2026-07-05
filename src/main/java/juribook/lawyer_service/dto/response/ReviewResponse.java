@@ -11,13 +11,14 @@ public record ReviewResponse(
     Long bookingId,
     int rating,
     String comment,
+    boolean visible,
     LocalDateTime createdAt
 ) {
     public static ReviewResponse from(Review review) {
         return new ReviewResponse(
                 review.getId(), review.getLawyerId(), review.getClientId(),
                 review.getBookingId(), review.getRating(), review.getComment(),
-                review.getCreatedAt()
+                review.isVisible(), review.getCreatedAt()
         );
     }
 }
