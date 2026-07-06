@@ -9,6 +9,7 @@ import juribook.lawyer_service.entity.Address;
 import juribook.lawyer_service.entity.Lawyer;
 import juribook.lawyer_service.entity.Specialty;
 import juribook.lawyer_service.event.LawyerEventPublisher;
+import juribook.lawyer_service.event.SearchEventPublisher;
 import juribook.lawyer_service.exception.LawyerProfileAlreadyExistsException;
 import juribook.lawyer_service.exception.LawyerProfileNotFoundException;
 import juribook.lawyer_service.repository.LawyerRepository;
@@ -43,6 +44,7 @@ public class LawyerService {
     private final SpecialtyRepository specialtyRepository;
     private final ReviewRepository reviewRepository;
     private final LawyerEventPublisher lawyerEventPublisher;
+    private final SearchEventPublisher searchEventPublisher;
 
     private static final int DEFAULT_PAGE_SIZE = 20;
     private static final int MAX_PAGE_SIZE     = 50;
@@ -153,6 +155,16 @@ public class LawyerService {
 
         log.debug("Recherche avocats : specialty={}, city={}, query={}, maxRate={} → {} résultats",
             specialtySlug, city, query, maxRate, results.getTotalElements());
+
+        // Publie CHAQUE recherche (même sans filtre) pour
+        // analyse de tendances côté audit-service. ⚠️ Publie le slug tel
+        // quel (ex: "droit-du-travail"), pas le nom affichable de la
+        // spécialité, specialty_popularity (côté réservations)
+        // utilise lui le nom (ex: "Droit du travail"), donc les deux vues
+        // ont des clés dans des formats différents. Compromis assumé pour
+        // éviter un aller-retour BDD supplémentaire ; à revoir si un futur
+        // dashboard veut les afficher côte à côte sous la même clé.
+        searchEventPublisher.publishSearchPerformed(normalizedSlug, normalizedCity, normalizedQuery);
 
         return results.map(LawyerSearchResponse::from);
     }

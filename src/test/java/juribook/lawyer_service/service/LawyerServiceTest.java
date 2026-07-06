@@ -9,6 +9,7 @@ import juribook.lawyer_service.entity.Address;
 import juribook.lawyer_service.entity.Lawyer;
 import juribook.lawyer_service.entity.Specialty;
 import juribook.lawyer_service.event.LawyerEventPublisher;
+import juribook.lawyer_service.event.SearchEventPublisher;
 import juribook.lawyer_service.exception.LawyerProfileAlreadyExistsException;
 import juribook.lawyer_service.exception.LawyerProfileNotFoundException;
 import juribook.lawyer_service.repository.LawyerRepository;
@@ -38,12 +39,14 @@ import static org.mockito.Mockito.*;
  * Tests unitaires de LawyerService - couverture CRUD, recherche, filtres, pagination.
  *
  * Convention de nommage : methode_scenario_resultatAttendu
- * Mocking : LawyerRepository, SpecialtyRepository et LawyerEventPublisher
- * sont mockés, aucune base de données réelle ni Kafka réel
- * n'est sollicité. LawyerEventPublisher.publishStatusChanged est une
- * méthode void, Mockito ne nécessite aucun stubbing pour elle (no-op
- * par défaut), sans le mock lui-même @InjectMocks laisserait le champ
- * à null et ferait planter tout appel à updateProfile.
+ * Mocking : LawyerRepository, SpecialtyRepository, LawyerEventPublisher et
+ * SearchEventPublisher sont mockés, aucune base de données
+ * réelle ni Kafka réel n'est sollicité. LawyerEventPublisher.
+ * publishStatusChanged et SearchEventPublisher.publishSearchPerformed
+ * sont des méthodes void, Mockito ne nécessite aucun stubbing pour elles
+ * (no-op par défaut), mais sans les mocks eux-mêmes @InjectMocks
+ * laisserait les champs à null et ferait planter tout appel à
+ * updateProfile (lawyerEventPublisher) ou search (searchEventPublisher).
  */
 @ExtendWith(MockitoExtension.class)
 @DisplayName("LawyerService")
@@ -57,6 +60,9 @@ class LawyerServiceTest {
 
     @Mock
     private LawyerEventPublisher lawyerEventPublisher;
+
+    @Mock
+    private SearchEventPublisher searchEventPublisher;
 
     @InjectMocks
     private LawyerService lawyerService;
@@ -325,7 +331,7 @@ class LawyerServiceTest {
         }
 
         @Test
-        @DisplayName("publie lawyer.status-changed quand available passe de true à false (Sprint 5.9)")
+        @DisplayName("publie lawyer.status-changed quand available passe de true à false")
         void updateProfile_availableChangesFromTrueToFalse_publishesStatusChangedEvent() {
             UpdateLawyerProfileRequest request = new UpdateLawyerProfileRequest();
             request.setAvailable(false);
@@ -339,7 +345,7 @@ class LawyerServiceTest {
         }
 
         @Test
-        @DisplayName("publie lawyer.status-changed quand available repasse de false à true (Sprint 5.9)")
+        @DisplayName("publie lawyer.status-changed quand available repasse de false à true")
         void updateProfile_availableChangesFromFalseToTrue_publishesStatusChangedEvent() {
             sophieLawyer.setAvailable(false);
             UpdateLawyerProfileRequest request = new UpdateLawyerProfileRequest();
@@ -354,7 +360,7 @@ class LawyerServiceTest {
         }
 
         @Test
-        @DisplayName("ne publie rien quand available est fourni mais identique à la valeur actuelle (Sprint 5.9)")
+        @DisplayName("ne publie rien quand available est fourni mais identique à la valeur actuelle")
         void updateProfile_availableUnchanged_doesNotPublishEvent() {
             // sophieLawyer.available == true, requête redemande explicitement true
             UpdateLawyerProfileRequest request = new UpdateLawyerProfileRequest();

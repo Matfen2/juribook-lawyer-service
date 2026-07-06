@@ -21,13 +21,20 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * Tests dédiés à LawyerService.recalculateRating - 
+ * Tests dédiés à LawyerService.recalculateRating -
  * fichier séparé de LawyerServiceTest.java (CRUD/recherche) pour rester
  * lisible, même classe testée.
  *
  * LawyerEventPublisher et ReviewRepository mockés séparément (pas
  * @InjectMocks global) : ce fichier ne teste QUE recalculateRating, pas
  * besoin de reconstruire tout le contexte CRUD/recherche pour ça.
+ *
+ * ⚠️ Sprint 7.5 : LawyerService a un 5e argument de constructeur
+ * (SearchEventPublisher) depuis l'ajout de la publication search-events
+ * dans search() — sans lui, `new LawyerService(...)` à 4 arguments ne
+ * compile plus. searchEventPublisher n'est jamais utilisé par
+ * recalculateRating, mais doit être mocké et passé pour construire
+ * l'instance.
  */
 @ExtendWith(MockitoExtension.class)
 @DisplayName("LawyerService.recalculateRating")
@@ -37,6 +44,7 @@ class LawyerServiceRecalculateRatingTest {
     @Mock private juribook.lawyer_service.repository.SpecialtyRepository specialtyRepository;
     @Mock private ReviewRepository reviewRepository;
     @Mock private juribook.lawyer_service.event.LawyerEventPublisher lawyerEventPublisher;
+    @Mock private juribook.lawyer_service.event.SearchEventPublisher searchEventPublisher;
 
     private LawyerService lawyerService;
 
@@ -45,7 +53,8 @@ class LawyerServiceRecalculateRatingTest {
 
     @BeforeEach
     void setUp() {
-        lawyerService = new LawyerService(lawyerRepository, specialtyRepository, reviewRepository, lawyerEventPublisher);
+        lawyerService = new LawyerService(
+                lawyerRepository, specialtyRepository, reviewRepository, lawyerEventPublisher, searchEventPublisher);
 
         lawyer = new Lawyer();
         lawyer.setId(LAWYER_ID);
