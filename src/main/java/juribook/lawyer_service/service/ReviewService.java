@@ -13,6 +13,9 @@ import juribook.lawyer_service.exception.ReviewNotFoundException;
 import juribook.lawyer_service.repository.ReviewRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -20,12 +23,15 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * Création, modération et consultation d'avis (Sprint 6.1 → 6.5).
+ * Création, modération et consultation d'avis.
  */
 @Service
 @RequiredArgsConstructor
 @Slf4j
 public class ReviewService {
+
+    private static final int DEFAULT_PAGE_SIZE = 20;
+    private static final int MAX_PAGE_SIZE = 50;
 
     private final ReviewRepository reviewRepository;
     private final BookingServiceClient bookingServiceClient;
@@ -71,9 +77,8 @@ public class ReviewService {
     }
 
     // ══════════════════════════════════════════════════════════
-    //  Consultation publique (Sprint 6.5)
+    //  Consultation publique
     // ══════════════════════════════════════════════════════════
-
     @Transactional(readOnly = true)
     public List<ReviewPublicResponse> getVisibleReviews(Long lawyerId) {
         return reviewRepository.findByLawyerIdAndVisibleTrueOrderByCreatedAtDesc(lawyerId)
@@ -83,8 +88,22 @@ public class ReviewService {
     }
 
     // ══════════════════════════════════════════════════════════
-    //  Modération admin (Sprint 6.4)
+    //  Modération admin
     // ══════════════════════════════════════════════════════════
+    /**
+     * Panneau de modération : tous les avis (visibles et
+     * masqués), triés pire note d'abord, pas de vrai signalement
+     * côté client, cf. javadoc de ReviewRepository.findForModeration.
+     *
+     * @param visible filtre optionnel, null retourne tout, true/false restreint
+     */
+    @Transactional(readOnly = true)
+    public Page<ReviewResponse> getReviewsForModeration(Boolean visible, int page, int size) {
+        int safeSize = Math.min(size > 0 ? size : DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE);
+        Pageable pageable = PageRequest.of(page, safeSize);
+        return reviewRepository.findForModeration(visible, pageable)
+                .map(ReviewResponse::from);
+    }
 
     @Transactional
     public ReviewResponse hideReview(Long reviewId) {
@@ -110,5 +129,32 @@ public class ReviewService {
         lawyerService.recalculateRating(saved.getLawyerId());
 
         return ReviewResponse.from(saved);
+    }
+
+    /**
+     * Suppression DÉFINITIVE : contrairement à hide/unhide
+     * (réversible), cette opération est irréversible : l'avis est
+     * réellement retiré de la base, pas juste masqué. Choix assumé
+     * (reviens sur la note "pas de suppression" documentée jusqu'ici),
+     * pour un vrai besoin de retrait de contenu illégal/diffamatoire.
+     *
+     * Ne publie aucun événement Kafka (cohérent avec hide/unhide qui
+     * n'en publient pas non plus, cf. limites connues du README), le
+     * seul événement jamais publié sur un avis reste review.created à
+     * sa création ; sa trace reste de toute façon dans audit_entries
+     * (append-only, jamais affecté par cette suppression).
+     */
+    @Transactional
+    public void deleteReview(Long reviewId) {
+        Review review = reviewRepository.findById(reviewId)
+                .orElseThrow(() -> new ReviewNotFoundException(
+                    "Avis introuvable : id=" + reviewId));
+
+        Long lawyerId = review.getLawyerId();
+        reviewRepository.delete(review);
+
+        log.warn("Avis supprimé définitivement : id={}, lawyerId={}", reviewId, lawyerId);
+
+        lawyerService.recalculateRating(lawyerId);
     }
 }

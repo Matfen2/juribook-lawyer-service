@@ -19,11 +19,6 @@ import java.util.List;
 
 /**
  * Configuration Spring Security + CORS du lawyer-service.
- *
- * Le CORS est configuré directement dans SecurityFilterChain
- * (via .cors()) plutôt qu'avec un bean CorsFilter séparé.
- * Dans Spring Boot 4, un CorsFilter bean externe peut entrer
- * en conflit avec la chaîne de sécurité et empêcher son chargement.
  */
 @Configuration
 @EnableWebSecurity
@@ -35,7 +30,6 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         return http
-                // CORS configuré ici, pas de bean CorsFilter séparé
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .csrf(AbstractHttpConfigurer::disable)
                 .sessionManagement(session ->
@@ -53,6 +47,12 @@ public class SecurityConfig {
                     .requestMatchers(HttpMethod.PUT,  "/api/lawyers/profile").hasRole("LAWYER")
                     // Route CLIENT - laisser un avis
                     .requestMatchers(HttpMethod.POST, "/api/reviews").hasRole("CLIENT")
+                    // Routes ADMIN - modération des avis,
+                    // déclarées avant tout catch-all pour être sûres de matcher
+                    .requestMatchers(HttpMethod.GET, "/api/reviews/moderation").hasRole("ADMIN")
+                    .requestMatchers(HttpMethod.PATCH, "/api/reviews/*/hide").hasRole("ADMIN")
+                    .requestMatchers(HttpMethod.PATCH, "/api/reviews/*/unhide").hasRole("ADMIN")
+                    .requestMatchers(HttpMethod.DELETE, "/api/reviews/*").hasRole("ADMIN")
                     // Profils publics
                     .requestMatchers(HttpMethod.GET, "/api/lawyers/**").permitAll()
                     .anyRequest().authenticated()
@@ -66,7 +66,7 @@ public class SecurityConfig {
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration config = new CorsConfiguration();
         config.setAllowedOrigins(List.of("http://localhost:5173"));
-        config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
+        config.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         config.setAllowedHeaders(List.of("Authorization", "Content-Type", "Accept"));
         config.setExposedHeaders(List.of("Authorization"));
         config.setAllowCredentials(true);

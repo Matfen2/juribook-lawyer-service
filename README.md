@@ -1,6 +1,6 @@
 # juribook-lawyer-service
 
-Microservice de gestion des profils avocats pour **JuriBook** : création et modification du profil, recherche par spécialité et ville, consultation publique, publication d'événements Kafka sur les changements de disponibilité, avis clients avec note moyenne calculée et modération admin.
+Microservice de gestion des profils avocats pour **JuriBook** : création et modification du profil, recherche par spécialité et ville, consultation publique, publication d'événements Kafka sur les changements de disponibilité, avis clients avec note moyenne calculée et **modération admin complète** (masquer, démasquer, supprimer définitivement).
 
 ## Stack
 
@@ -21,12 +21,12 @@ src/main/java/juribook/lawyer_service/
 │   ├── BookingServiceClient.java       # Interface - getBookingDetails
 │   └── RestClientBookingServiceClient.java
 ├── config/
-│   ├── SecurityConfig.java             # Règles d'accès par rôle + filtre JWT
+│   ├── SecurityConfig.java             # Règles d'accès par rôle + filtre JWT - 4 routes ADMIN modération ajoutées
 │   ├── OpenApiConfig.java              # Configuration Swagger UI
-│   └── JacksonConfig.java              # Bean ObjectMapper explicite (cf. Notes techniques — fix date juillet 2026)
+│   └── JacksonConfig.java              # Bean ObjectMapper explicite (cf. Notes techniques - fix date juillet 2026)
 ├── controller/
 │   ├── LawyerController.java           # GET /api/lawyers, POST/GET/PUT /api/lawyers/profile, GET /api/specialties
-│   └── ReviewController.java           # POST /api/reviews, PATCH /api/reviews/{id}/hide|unhide (Sprint 6.1/6.4)
+│   └── ReviewController.java           # POST /api/reviews, GET /moderation, PATCH hide/unhide, DELETE /{id}
 ├── dto/
 │   ├── request/
 │   │   ├── CreateLawyerProfileRequest.java
@@ -37,7 +37,7 @@ src/main/java/juribook/lawyer_service/
 │       ├── LawyerSearchResponse.java   # Profil allégé (liste de recherche)
 │       ├── SpecialtyResponse.java
 │       ├── AddressResponse.java
-│       └── ReviewResponse.java         # Inclut visible
+│       └── ReviewResponse.java         # Inclut visible - réutilisé tel quel pour le panneau de modération
 ├── entity/
 │   ├── Lawyer.java                     # Entité JPA principale, averageRating/reviewCount recalculés
 │   ├── Specialty.java                  # Table de référence (15 spécialités)
@@ -56,17 +56,18 @@ src/main/java/juribook/lawyer_service/
 │   ├── LawyerProfileAlreadyExistsException.java
 │   ├── InvalidReviewException.java     # 400 - avis déjà existant, réservation introuvable 
 │   ├── NotEligibleToReviewException.java  # 403 - réservation n'appartenant pas au client, statut ≠ COMPLETED 
-│   └── ReviewNotFoundException.java    # 404 - modération sur un avis inexistant
+│   └── ReviewNotFoundException.java    # 404 - modération sur un avis inexistant (hide/unhide/delete)
 ├── filter/
 │   └── JwtAuthenticationFilter.java    # Filtre Spring Security (OncePerRequestFilter)
 ├── repository/
 │   ├── LawyerRepository.java           # Requêtes JPQL + recherche paginée
 │   ├── SpecialtyRepository.java
-│   └── ReviewRepository.java           # existsByBookingId, agrégats note moyenne 
+│   └── ReviewRepository.java           # existsByBookingId, agrégats note moyenne, findForModeration paginé
+├── security/
+│   └── JwtService.java                 # Validation des tokens JWT (lecture seule)
 └── service/
     ├── LawyerService.java              # Logique métier profil + recherche + Kafka + recalculateRating
-    ├── ReviewService.java              # Création + modération d'avis
-    └── JwtService.java                 # Validation des tokens JWT
+    └── ReviewService.java              # Création, consultation, modération (masquer/démasquer/supprimer) d'avis
 src/main/resources/
 ├── application.yaml
 └── db/migration/
@@ -75,7 +76,18 @@ src/main/resources/
     ├── V3__add_name_to_lawyers.sql
     ├── V4__create_reviews_table.sql   
     └── V5__add_visible_to_reviews.sql 
+src/test/java/juribook/lawyer_service/
+├── controller/
+│   ├── LawyerControllerTest.java
+│   └── ReviewControllerModerationTest.java   # Sécurité ADMIN sur les 4 routes de modération
+└── service/
+    ├── LawyerServiceTest.java
+    ├── LawyerServiceRecalculateRatingTest.java
+    ├── ReviewServiceTest.java
+    └── ReviewServiceModerationTest.java       # getReviewsForModeration, deleteReview
 ```
+
+> ⚠️ **`JwtService` vit dans `security/`, pas dans `service/`** malgré ce qu'un ancien commentaire pouvait laisser penser, à vérifier en premier si un import échoue après avoir copié un fichier depuis un autre service de ce projet (chaque service place parfois ce fichier différemment).
 
 ## Lancer en local (hors Docker)
 
@@ -129,12 +141,14 @@ docker compose up -d postgres-lawyer lawyer-service
 |---|---|---|
 | `POST` | `/api/reviews` | Laisser un avis sur une réservation `COMPLETED`, publie `review.created` |
 
-### Protégés ADMIN (token JWT requis, rôle ADMIN)
+### Protégés ADMIN - modération des avis (token JWT requis, rôle ADMIN)
 
 | Méthode | URL | Description |
 |---|---|---|
-| `PATCH` | `/api/reviews/{id}/hide` | Masquer un avis inapproprié, recalcule la note moyenne immédiatement |
+| `GET` | `/api/reviews/moderation` | Panneau de modération paginé - tous les avis (visibles + masqués), triés pire note d'abord |
+| `PATCH` | `/api/reviews/{id}/hide` | Masquer un avis inapproprié, recalcule la note moyenne immédiatement - **réversible** |
 | `PATCH` | `/api/reviews/{id}/unhide` | Annuler un masquage |
+| `DELETE` | `/api/reviews/{id}` | Supprimer **définitivement** un avis, **irréversible**, recalcule la note moyenne |
 
 ---
 
@@ -254,7 +268,7 @@ Réponse : 200. Aucun événement Kafka publié - `available` n'est pas dans la 
 
 ---
 
-### Se désactiver — publie `lawyer.status-changed`
+### Se désactiver - publie `lawyer.status-changed`
 ```json
 PUT http://localhost:8082/api/lawyers/profile
 Authorization: Bearer <token_jwt_avocat>
@@ -302,7 +316,7 @@ Réponse - 201 :
     "createdAt": "2026-07-04T02:06:58.496375"
 }
 ```
-`lawyerId` n'est **jamais** fourni par le client, il est résolu côté serveur à partir de `bookingId` (appel à `GET /api/bookings/{id}` sur le booking-service). Publie `review.created` sur `review-events`, et recalcule immédiatement `averageRating`/`reviewCount` sur le profil de l'avocat concerné (Sprint 6.3, même transaction).
+`lawyerId` n'est **jamais** fourni par le client, il est résolu côté serveur à partir de `bookingId` (appel à `GET /api/bookings/{id}` sur le booking-service). Publie `review.created` sur `review-events`, et recalcule immédiatement `averageRating`/`reviewCount` sur le profil de l'avocat concerné (même transaction).
 
 ⚠️ Prérequis pour que ça fonctionne : la réservation désignée par `bookingId` doit être au statut `COMPLETED`. **Aucun mécanisme automatique ne fait encore cette transition** (`CONFIRMED → COMPLETED`), à ce stade, il faut la forcer manuellement en base pour tester :
 ```bash
@@ -318,10 +332,38 @@ POST /api/reviews avec rating hors 1-5              → 400 "La note doit être 
 POST /api/reviews sur un bookingId déjà évalué        → 400 "Un avis a déjà été laissé pour cette réservation"
 POST /api/reviews sur un bookingId inexistant          → 400 "Réservation introuvable : id=..."
 POST /api/reviews sur une réservation d'un autre client → 403 "Cette réservation ne vous appartient pas"
-POST /api/reviews sur une réservation pas COMPLETED     → 403 "Seul un rendez-vous honoré (COMPLETED) peut faire l'objet d'un avis — statut actuel : ..."
+POST /api/reviews sur une réservation pas COMPLETED     → 403 "Seul un rendez-vous honoré (COMPLETED) peut faire l'objet d'un avis - statut actuel : ..."
 ```
 
 ---
+
+### Panneau de modération (ADMIN)
+
+```
+GET http://localhost:8082/api/reviews/moderation?page=0&size=20
+Authorization: Bearer <token_jwt_admin>
+```
+Trié par note croissante puis date décroissante, les moins bien notés en premier. Aucun vrai mécanisme de signalement côté client à ce stade (hors scope du sprint), ce tri sert de proxy objectif pour prioriser l'examen.
+
+Filtre optionnel `visible` :
+```
+GET http://localhost:8082/api/reviews/moderation?visible=false    # masqués uniquement
+GET http://localhost:8082/api/reviews/moderation?visible=true     # visibles uniquement
+GET http://localhost:8082/api/reviews/moderation                  # les deux confondus
+```
+
+Réponse - 200 :
+```json
+{
+    "content": [
+        { "id": 3, "lawyerId": 4, "clientId": 42, "bookingId": 7, "rating": 1, "comment": "Très déçu.", "visible": true, "createdAt": "2026-07-05T14:00:00" }
+    ],
+    "totalElements": 1,
+    "totalPages": 1,
+    "size": 20,
+    "number": 0
+}
+```
 
 ### Masquer un avis inapproprié (ADMIN)
 
@@ -329,13 +371,23 @@ POST /api/reviews sur une réservation pas COMPLETED     → 403 "Seul un rendez
 PATCH http://localhost:8082/api/reviews/1/hide
 Authorization: Bearer <token_jwt_admin>
 ```
-Réponse - 200, `visible: false`. La note moyenne de l'avocat est recalculée immédiatement, sans cet avis.
+Réponse - 200, `visible: false`. La note moyenne de l'avocat est recalculée immédiatement, sans cet avis. **Réversible** via `/unhide`.
 
 ```
 PATCH http://localhost:8082/api/reviews/1/unhide
 Authorization: Bearer <token_jwt_admin>
 ```
 Réponse - 200, `visible: true`, l'avis repèse dans la moyenne.
+
+Refusé - **403** avec un token CLIENT ou LAWYER ; **404** si `id` n'existe pas.
+
+### Supprimer définitivement un avis (ADMIN)
+
+```
+DELETE http://localhost:8082/api/reviews/1
+Authorization: Bearer <token_jwt_admin>
+```
+Réponse - **204 No Content**. ⚠️ **Irréversible** - contrairement à `/hide` (réversible via `/unhide`), l'avis est réellement retiré de la table `reviews`. Recalcule immédiatement la note moyenne de l'avocat concerné. Ne publie aucun événement Kafka (cohérent avec `hide`/`unhide`, cf. limites connues) ; la trace `review.created` d'origine reste de toute façon dans `audit_entries` côté `audit-service` (append-only, jamais affectée par cette suppression).
 
 Refusé - **403** avec un token CLIENT ou LAWYER ; **404** si `id` n'existe pas.
 
@@ -349,6 +401,8 @@ POST /api/lawyers/profile sans token       → 401 Unauthorized
 POST /api/lawyers/profile avec token CLIENT → 403 Forbidden
 POST avec specialtyIds: [999]             → 400 "Spécialité introuvable : id=999"
 POST sans city                            → 400 "La ville est obligatoire"
+GET /api/reviews/moderation avec token CLIENT/LAWYER → 403 Forbidden
+DELETE /api/reviews/{id} inconnu           → 404 "Avis introuvable : id=..."
 ```
 
 ---
@@ -385,12 +439,18 @@ docker exec -it juribook-postgres-lawyer psql -U juribook -d lawyerdb -c "SELECT
 docker exec -it juribook-postgres-lawyer psql -U juribook -d lawyerdb -c "SELECT id, client_id, booking_id, rating, comment, visible, created_at FROM reviews WHERE lawyer_id = 4 ORDER BY created_at DESC;"
 ```
 
+### Lister les avis les moins bien notés, tous avocats confondus (vue "modération")
+
+```bash
+docker exec -it juribook-postgres-lawyer psql -U juribook -d lawyerdb -c "SELECT id, lawyer_id, client_id, rating, comment, visible, created_at FROM reviews ORDER BY rating ASC, created_at DESC LIMIT 20;"
+```
+
 ### Vérifier la cohérence note moyenne / avis réellement visibles
 
 ```bash
 docker exec -it juribook-postgres-lawyer psql -U juribook -d lawyerdb -c "SELECT l.id, l.average_rating, l.review_count, (SELECT ROUND(AVG(rating)::numeric, 1) FROM reviews WHERE lawyer_id = l.id AND visible = true) AS avg_recalcule, (SELECT COUNT(*) FROM reviews WHERE lawyer_id = l.id AND visible = true) AS count_recalcule FROM lawyers l WHERE l.id = 4;"
 ```
-Les deux paires de colonnes doivent toujours être identiques : `LawyerService.recalculateRating` s'exécute dans la même transaction que toute création/masquage d'avis, aucune fenêtre de désynchronisation possible.
+Les deux paires de colonnes doivent toujours être identiques : `LawyerService.recalculateRating` s'exécute dans la même transaction que toute création/masquage/démasquage/**suppression** d'avis, aucune fenêtre de désynchronisation possible.
 
 ### Vérifier les migrations Flyway
 
@@ -428,13 +488,13 @@ Address est embarquée dans lawyers             (@Embeddable)
 Review ──> Lawyer, Review ──> Booking (booking-service)   (colonnes de corrélation, pas de FK JPA)
 ```
 
-`Review.lawyerId` et `Review.clientId` ne sont pas des FK JPA, même principe que partout ailleurs dans le projet (*database per service*). `Review.bookingId` porte une contrainte `UNIQUE` en base (migration V4) : un avis par réservation, jamais deux.
+`Review.lawyerId` et `Review.clientId` ne sont pas des FK JPA, même principe que partout ailleurs dans le projet (*database per service*). `Review.bookingId` porte une contrainte `UNIQUE` en base (migration V4) : un avis par réservation, jamais deux, **y compris après suppression** : un avis supprimé libère `bookingId`, un nouvel avis peut alors être laissé sur la même réservation (contrairement au masquage, qui garde la ligne et donc la contrainte occupée).
 
-### Note moyenne — recalcul complet, pas incrémental (Sprint 6.3/6.4)
+### Note moyenne - recalcul complet, pas incrémental
 
-`Lawyer.averageRating` (nullable, `null` tant qu'aucun avis visible n'existe) et `Lawyer.reviewCount` sont recalculés **entièrement** à chaque création, masquage, ou démasquage d'avis, `LawyerService.recalculateRating` relit tous les avis `visible = true` de l'avocat via `AVG()`/`COUNT()` SQL, plutôt que de maintenir une somme courante à incrémenter/décrémenter. Plus simple, correct par construction, largement suffisant pour le volume d'avis attendu sur ce projet.
+`Lawyer.averageRating` (nullable, `null` tant qu'aucun avis visible n'existe) et `Lawyer.reviewCount` sont recalculés **entièrement** à chaque création, masquage, démasquage, **ou suppression** d'avis, `LawyerService.recalculateRating` relit tous les avis `visible = true` de l'avocat via `AVG()`/`COUNT()` SQL, plutôt que de maintenir une somme courante à incrémenter/décrémenter. Plus simple, correct par construction, largement suffisant pour le volume d'avis attendu sur ce projet.
 
-Arrondi à une décimale pour l'affichage (`4.4285714...` → `4.4`). Toujours exécuté dans la **même transaction** que l'opération déclenchante (`ReviewService.createReview`/`hideReview`/`unhideReview`) : si le recalcul échoue, l'opération sur l'avis est annulée aussi, le profil n'affiche jamais une moyenne désynchronisée des avis réellement visibles en base.
+Arrondi à une décimale pour l'affichage (`4.4285714...` → `4.4`). Toujours exécuté dans la **même transaction** que l'opération déclenchante (`ReviewService.createReview`/`hideReview`/`unhideReview`/`deleteReview`) : si le recalcul échoue, l'opération sur l'avis est annulée aussi, le profil n'affiche jamais une moyenne désynchronisée des avis réellement en base.
 
 ### Spécialités prédéfinies (V2__insert_specialties.sql)
 
@@ -465,7 +525,7 @@ Arrondi à une décimale pour l'affichage (`4.4285714...` → `4.4`). Toujours e
 | Topic | Événement | Déclencheur |
 |---|---|---|
 | `lawyer-events` | `lawyer.status-changed` | `PUT /api/lawyers/profile` : uniquement quand `available` change réellement de valeur |
-| `review-events` | `review.created` | `POST /api/reviews` : à chaque avis créé (jamais sur masquage/démasquage, cf. limites connues) |
+| `review-events` | `review.created` | `POST /api/reviews` : à chaque avis créé (jamais sur masquage/démasquage/suppression, cf. limites connues) |
 
 `LawyerService.updateProfile` capture la valeur de `available` **avant** modification, et ne publie que si la nouvelle valeur diffère de l'ancienne, pas à chaque sauvegarde de profil qui ne touche pas à ce champ.
 
@@ -542,7 +602,7 @@ Même fix que `notification-service`/`audit-service`/`booking-service` : Spring 
 
 ### Sérialisation des dates
 
-`new ObjectMapper().findAndRegisterModules()` enregistre le support de `java.time`, mais **ne désactive pas** le comportement par défaut de Jackson qui sérialise les dates en tableau de composants numériques (`[2026,7,4,2,6,58,496375400]`) plutôt qu'en chaîne ISO-8601. Spring Boot désactive ce comportement automatiquement dans son propre `ObjectMapper` autoconfiguré, mais un `new ObjectMapper()` construit à la main comme dans `JacksonConfig` contourne cette configuration. Repéré en observant un `occurredAt` de `review.created` mal formé dans `audit_entries`, tous les événements publiés par ce service (et par `booking-service`/`notification-service`/`audit-service`, même pattern partout) avant ce fix ont un `occurredAt` illisible pour quiconque tente de le parser en aval.
+`new ObjectMapper().findAndRegisterModules()` enregistre le support de `java.time`, mais **ne désactive pas** le comportement par défaut de Jackson qui sérialise les dates en tableau de composants numériques (`[2026,7,4,2,6,58,496375400]`) plutôt qu'en chaîne ISO-8601. Spring Boot désactive ce comportement automatiquement dans son propre `ObjectMapper` autoconfiguré, mais un `new ObjectMapper()` construit à la main comme dans `JacksonConfig` contourne cette configuration.
 
 Fix appliqué :
 ```java
@@ -554,15 +614,20 @@ public ObjectMapper objectMapper() {
 }
 ```
 
+### `@WebMvcTest` - package correct en Spring Boot 4.1.0
+
+Le package réel de `@WebMvcTest` en Spring Boot 4.1.0 est bien `org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest`. Le starter de test correspondant, `spring-boot-starter-webmvc-test`, doit être présent en plus du générique `spring-boot-starter-test`.
+
 ---
 
 ## Limites connues
 
-- **`lawyer.status-changed` n'est publié que sur un changement de `available`** — pas sur les autres modifications de profil (bio, tarif, spécialités...). Cohérent avec le besoin actuel (`booking-service` ne s'intéresse qu'à la disponibilité), mais si un futur besoin (ex: `search-events` pour l'analytics, notification de changement de tarif) apparaît, il faudra étendre `updateProfile` en conséquence.
-- **Aucun endpoint admin dédié pour désactiver un avocat** : le déclencheur de `lawyer.status-changed` est le champ `available`, que l'avocat contrôle **lui-même** via `PUT /api/lawyers/profile`. Le cahier des charges évoquait une désactivation côté admin ; ce choix d'implémentation réutilise l'infrastructure déjà existante plutôt que d'ajouter un nouveau workflow admin.
+- **`lawyer.status-changed` n'est publié que sur un changement de `available`**, pas sur les autres modifications de profil (bio, tarif, spécialités...). Cohérent avec le besoin actuel (`booking-service` ne s'intéresse qu'à la disponibilité), mais si un futur besoin (ex: `search-events` pour l'analytics, notification de changement de tarif) apparaît, il faudra étendre `updateProfile` en conséquence.
+- **Aucun endpoint admin dédié pour désactiver un avocat** : le déclencheur de `lawyer.status-changed` est le champ `available`, que l'avocat contrôle **lui-même** via `PUT /api/lawyers/profile`.
 - **Pas de provisioning explicite des topics depuis ce service** : `lawyer-events`/`review-events` sont provisionnés centralement par `kafka-init` (dépôt `juribook-docker`).
-- **Aucun mécanisme automatique ne fait passer une réservation en `COMPLETED`** : condition indispensable pour laisser un avis, mais rien côté `booking-service` ne déclenche jamais cette transition (ni job planifié, ni action manuelle exposée). À ce stade, seul un `UPDATE` SQL direct en base permet de tester le flux d'avis de bout en bout. Sujet ouvert, probablement un futur sprint côté `booking-service` (job similaire à `BookingReminderJob`, qui basculerait `CONFIRMED → COMPLETED` une fois la date/heure du rendez-vous passée).
-- **`review.created` n'est publié qu'à la création, jamais sur masquage/démasquage** : un consommateur qui agrégerait les avis depuis Kafka (ex: futur service analytics) ne verrait jamais qu'un avis a été masqué, et afficherait une moyenne divergente de celle recalculée en base par `LawyerService.recalculateRating`. Pas un problème pour l'instant (aucun consommateur de ce type n'existe), mais à corriger si review-events devient la source de vérité pour un futur agrégateur externe, publier aussi `review.hidden`/`review.unhidden`.
-- **Pas de suppression d'avis, seulement un masquage** : choix délibéré (traçabilité), mais signifie qu'un avis clairement erroné (ex: posté par erreur sur le mauvais avocat) reste en base indéfiniment, juste invisible.
-- **Pas encore d'endpoint de consultation des avis d'un avocat** : `ReviewRepository.findByLawyerIdOrderByCreatedAtDesc` existe déjà mais n'est exposé par aucune route ; seul le résumé agrégé (`averageRating`/`reviewCount` sur `LawyerProfileResponse`) est consultable pour l'instant, pas le détail des avis eux-mêmes.
+- **Aucun mécanisme automatique ne fait passer une réservation en `COMPLETED`** : condition indispensable pour laisser un avis, mais rien côté `booking-service` ne déclenche jamais cette transition (ni job planifié, ni action manuelle exposée). À ce stade, seul un `UPDATE` SQL direct en base permet de tester le flux d'avis de bout en bout.
+- **`review.created` n'est publié qu'à la création, jamais sur masquage/démasquage/suppression** : un consommateur qui agrégerait les avis depuis Kafka (ex: futur service analytics) ne verrait jamais qu'un avis a été masqué ou supprimé, et afficherait une moyenne divergente de celle recalculée en base par `LawyerService.recalculateRating`. Pas un problème pour l'instant (aucun consommateur de ce type n'existe), mais à corriger si `review-events` devient la source de vérité pour un futur agrégateur externe — publier aussi `review.hidden`/`review.unhidden`/`review.deleted`.
+- **Pas de suppression d'avis, seulement un masquage : `DELETE /api/reviews/{id}` supprime désormais réellement un avis, choix assumé (revient sur le choix initial documenté ici) pour permettre le retrait de contenu illégal/diffamatoire. Le masquage (`hide`/`unhide`, réversible) reste disponible en parallèle pour les cas où la traçabilité est préférable à la suppression pure.
+- **Pas de vrai signalement d'avis côté client** : le panneau de modération (`GET /api/reviews/moderation`) montre tous les avis triés par note croissante, en l'absence d'un mécanisme de signalement dédié (bouton "signaler" côté client), tri par note utilisé comme proxy objectif.
+- **Pas encore d'endpoint de consultation des avis d'un avocat côté profil public** : `ReviewRepository.findByLawyerIdOrderByCreatedAtDesc` existe mais n'est exposé par aucune route publique; seul le résumé agrégé (`averageRating`/`reviewCount` sur `LawyerProfileResponse`) est consultable côté public, pas le détail des avis eux-mêmes (le panneau de modération, lui, est réservé à l'ADMIN).
 - **`occurred_at` reste `NULL` de façon permanente pour tous les événements enregistrés dans `audit_entries` avant le fix Jackson ci-dessus**, le payload brut original reste correct dans la colonne `payload`, mais l'extraction ne peut pas être refaite après coup sans un script de backfill (hors scope pour l'instant).
